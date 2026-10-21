@@ -1,10 +1,10 @@
 // Uygulama kabuğunu önbelleğe alır: önce ağ, ağ yoksa önbellek.
 // API istekleri (/api/) hiç önbelleğe alınmaz.
-const SURUM = "foto-studyo-v6";
+const SURUM = "foto-studyo-v7";
 const KABUK = [
   "/",
-  "/static/style.css?v=6",
-  "/static/app.js?v=6",
+  "/static/style.css?v=7",
+  "/static/app.js?v=7",
   "/manifest.webmanifest",
   "/static/icon-192.png",
 ];

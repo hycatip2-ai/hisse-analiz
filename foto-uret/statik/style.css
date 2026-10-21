@@ -76,7 +76,7 @@ textarea { resize: none; min-height: 104px; }
 
 /* Sayfalar */
 .sayfa { max-width: 640px; margin: 0 auto; padding: 16px 16px calc(150px + var(--alt-bosluk)); }
-#sayfa-galeri { padding-bottom: calc(90px + var(--alt-bosluk)); }
+#sayfa-galeri, #sayfa-kota { padding-bottom: calc(90px + var(--alt-bosluk)); }
 .kart { background: var(--yuzey); border: 1px solid var(--cizgi); border-radius: 18px; padding: 14px; }
 .etiket { display: block; font-size: .82rem; font-weight: 600; color: var(--soluk); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
 .etiket.bosluk { margin-top: 20px; }
@@ -227,3 +227,20 @@ textarea { resize: none; min-height: 104px; }
   position: absolute; right: 6px; bottom: 6px; display: grid; place-items: center;
   width: 24px; height: 24px; border-radius: 50%; background: rgba(0, 0, 0, .6); font-size: 11px; color: #fff;
 }
+
+/* Kota */
+.kota-kart { display: flex; flex-direction: column; gap: 10px; }
+.kota-buyuk { font-size: 2.6rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.olcer { height: 10px; border-radius: 99px; background: var(--yuzey-2); overflow: hidden; margin: 2px 0 6px; }
+.olcer-dolu { height: 100%; border-radius: 99px; background: var(--vurgu); min-width: 4px; transition: width .4s; }
+.kota-satir { display: flex; justify-content: space-between; gap: 12px; font-size: .95rem; font-variant-numeric: tabular-nums; }
+.kota-uyari { margin: 4px 0 0; padding: 10px 12px; border-radius: 10px; background: rgba(255, 194, 75, .12); color: var(--uyari); font-size: .88rem; }
+#kota-dagilim { display: flex; flex-direction: column; gap: 12px; }
+.dagilim-satir { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: .92rem; font-variant-numeric: tabular-nums; }
+.dagilim-cubuk { grid-column: 1 / -1; height: 6px; border-radius: 99px; background: var(--yuzey-2); overflow: hidden; }
+.dagilim-cubuk i { display: block; height: 100%; border-radius: 99px; background: var(--vurgu); min-width: 3px; }
+#kota-yenile { margin-top: 16px; }
+
+/* Yakınlaştırılmışken kaydırma kapalı; parmak hareketleri yakınlaştırmaya/kaydırmaya gider */
+.g-serit.yakin { overflow-x: hidden; touch-action: none; }
+.slayt img, .slayt video { transform-origin: center center; will-change: transform; }

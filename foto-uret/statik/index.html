@@ -8,7 +8,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/static/icon-192.png">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-<link rel="stylesheet" href="/static/style.css?v=6">
+<link rel="stylesheet" href="/static/style.css?v=7">
 <title>Foto Stüdyo</title>
 </head>
 <body>
@@ -24,6 +24,7 @@
   <symbol id="i-video" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M3 6h12v12H3zM15 10l6-3v10l-6-3"/></symbol>
   <symbol id="i-foto" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="i-bilgi" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 11v6M12 7.5v.5"/></symbol>
+  <symbol id="i-kota" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
   <symbol id="i-yukle" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12M7 10l5 5 5-5M4 21h16"/></symbol>
 </svg>
 
@@ -123,11 +124,35 @@
     <p id="galeri-bos" class="bos">Henüz bir şey yok.<br>Ürettiğin fotoğraf ve videolar burada saklanır.</p>
   </main>
 
+  <main id="sayfa-kota" class="sayfa" hidden>
+    <h2 class="baslik">Kota</h2>
+    <div id="kota-icerik" hidden>
+      <div class="kart kota-kart">
+        <div class="etiket">Kalan ücretsiz kredi</div>
+        <div id="kota-kalan" class="kota-buyuk"></div>
+        <div class="olcer" role="meter" aria-label="Bu ay kullanılan kredi" aria-valuemin="0" id="kota-olcer">
+          <div id="kota-dolu" class="olcer-dolu"></div>
+        </div>
+        <div class="kota-satir"><span class="soluk">Bu ay kullanılan</span><span id="kota-kullanilan"></span></div>
+        <div class="kota-satir"><span class="soluk">Bugün</span><span id="kota-bugun"></span></div>
+        <div class="kota-satir"><span class="soluk">Ödenecek tutar</span><span id="kota-odenecek"></span></div>
+        <div class="kota-satir"><span class="soluk">Kredi yenilenir</span><span id="kota-yenilenme"></span></div>
+        <p id="kota-uyari" class="kota-uyari" hidden></p>
+      </div>
+      <div class="etiket bosluk">Nereye harcandı (bu ay)</div>
+      <div class="kart" id="kota-dagilim"></div>
+      <p class="ipucu">Rakamlar Modal'dan alınır ve birkaç dakika gecikmeli olabilir.</p>
+    </div>
+    <p id="kota-durum" class="soluk"></p>
+    <button id="kota-yenile" class="ikincil-buton" type="button"><svg><use href="#i-tekrar"/></svg>Yenile</button>
+  </main>
+
   <div class="alt">
     <button id="uret" class="ana-buton uret-buton"><svg><use href="#i-parilti"/></svg><span>Üret</span></button>
     <nav class="sekmeler">
       <button data-sayfa="uret" class="secili"><svg><use href="#i-parilti"/></svg>Üret</button>
       <button data-sayfa="galeri"><svg><use href="#i-galeri"/></svg>Galeri</button>
+      <button data-sayfa="kota"><svg><use href="#i-kota"/></svg>Kota</button>
     </nav>
   </div>
 </section>
@@ -156,6 +181,6 @@
 
 <div id="bildirim" class="bildirim" hidden></div>
 
-<script src="/static/app.js?v=6"></script>
+<script src="/static/app.js?v=7"></script>
 </body>
 </html>

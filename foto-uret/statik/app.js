@@ -225,8 +225,10 @@ function sekmeAc(ad) {
   $$(".sekmeler button").forEach((b) => b.classList.toggle("secili", b.dataset.sayfa === ad));
   $("#sayfa-uret").hidden = ad !== "uret";
   $("#sayfa-galeri").hidden = ad !== "galeri";
+  $("#sayfa-kota").hidden = ad !== "kota";
   $("#uret").hidden = ad !== "uret";
   if (ad === "galeri") galeriCiz();
+  if (ad === "kota") kotaYukle();
   window.scrollTo(0, 0);
 }
 $$(".sekmeler button").forEach((b) => b.addEventListener("click", () => sekmeAc(b.dataset.sayfa)));
@@ -399,6 +401,7 @@ function dokunmaKur(el, kisa, uzun) {
   let by = 0;
   const iptal = () => { clearTimeout(zaman); zaman = null; };
   el.addEventListener("pointerdown", (e) => {
+    if (!e.isPrimary) { iptal(); return; }
     uzunOldu = false;
     bx = e.clientX;
     by = e.clientY;
@@ -518,6 +521,7 @@ $("#g-serit").addEventListener("scroll", () => {
     const serit = $("#g-serit");
     const i = Math.round(serit.scrollLeft / serit.clientWidth);
     if (i !== gz.idx && i >= 0 && i < gz.liste.length) {
+      zoomSifirla(false);
       gz.idx = i;
       slaytlariGuncelle();
     }
@@ -531,6 +535,7 @@ $("#g-serit").addEventListener("scroll", () => {
   let by = 0;
   let dikey = false;
   serit.addEventListener("touchstart", (e) => {
+    if (e.touches.length > 1 || zoom.olcek > 1) { dikey = false; by = Infinity; return; }
     bx = e.touches[0].clientX;
     by = e.touches[0].clientY;
     dikey = false;
@@ -538,6 +543,7 @@ $("#g-serit").addEventListener("scroll", () => {
   serit.addEventListener("touchmove", (e) => {
     const dx = e.touches[0].clientX - bx;
     const dy = e.touches[0].clientY - by;
+    if (e.touches.length > 1 || zoom.olcek > 1 || !Number.isFinite(dy)) return;
     if (!dikey && dy > 12 && dy > Math.abs(dx) * 1.5) dikey = true;
     if (dikey) {
       serit.style.transition = "none";
@@ -564,6 +570,7 @@ function ipucuGoster() {
 }
 
 function goruntuleyiciKapat() {
+  zoomSifirla(false);
   katman.g = false;
   $$("#g-serit video").forEach((v) => v.pause());
   $("#g-serit").innerHTML = "";
@@ -696,6 +703,180 @@ $$("#menu [data-is]").forEach((b) => b.addEventListener("click", async () => {
     bildir("Ayarlar yüklendi. Açıklamayı değiştirip tekrar üretebilirsin.");
   }
 }));
+
+// --- İki parmakla yakınlaştırma, sürükleme, çift dokunuşla yakınlaştırma ---
+// Medya transform'u: translate(x, y) scale(olcek), merkez noktası etrafında.
+const zoom = { olcek: 1, x: 0, y: 0, el: null };
+
+function aktifMedya() {
+  const s = $("#g-serit").children[gz.idx];
+  return s ? s.querySelector("img, video") : null;
+}
+function zoomUygula(gecis) {
+  if (!zoom.el) return;
+  zoom.el.style.transition = gecis ? "transform .2s" : "none";
+  zoom.el.style.transform = `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.olcek})`;
+  $("#g-serit").classList.toggle("yakin", zoom.olcek > 1);
+}
+function zoomSifirla(gecis = true) {
+  zoom.olcek = 1;
+  zoom.x = 0;
+  zoom.y = 0;
+  if (zoom.el) {
+    zoom.el.style.transition = gecis ? "transform .2s" : "none";
+    zoom.el.style.transform = "";
+  }
+  zoom.el = null;
+  $("#g-serit").classList.remove("yakin");
+}
+// Resim ekran dışına kaçmasın: büyütülmüş boyut kadar kaydırmaya izin ver.
+function zoomSinirla() {
+  const el = zoom.el;
+  const kap = $("#g-serit");
+  const mx = Math.max(0, (el.offsetWidth * zoom.olcek - kap.clientWidth) / 2);
+  const my = Math.max(0, (el.offsetHeight * zoom.olcek - kap.clientHeight) / 2);
+  zoom.x = Math.min(mx, Math.max(-mx, zoom.x));
+  zoom.y = Math.min(my, Math.max(-my, zoom.y));
+}
+// (px, py) ekran noktası yerinde kalacak şekilde ölçeği değiştir.
+function zoomNoktaya(yeniOlcek, px, py, bas) {
+  const kap = $("#g-serit").getBoundingClientRect();
+  const cx = kap.left + kap.width / 2;
+  const cy = kap.top + kap.height / 2;
+  const qx = (px - cx - bas.x) / bas.olcek;
+  const qy = (py - cy - bas.y) / bas.olcek;
+  zoom.olcek = Math.min(5, Math.max(1, yeniOlcek));
+  zoom.x = px - cx - zoom.olcek * qx;
+  zoom.y = py - cy - zoom.olcek * qy;
+  zoomSinirla();
+}
+
+(() => {
+  const serit = $("#g-serit");
+  let mod = null; // "sikistir" | "surukle"
+  let bas = null;
+  let sonDokunus = { t: 0, x: 0, y: 0 };
+  const mesafe = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  const orta = (a, b) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
+
+  serit.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 2) {
+      const el = aktifMedya();
+      if (!el) return;
+      if (zoom.el !== el) { zoomSifirla(false); zoom.el = el; }
+      mod = "sikistir";
+      bas = { olcek: zoom.olcek, x: zoom.x, y: zoom.y, d: mesafe(e.touches[0], e.touches[1]), m: orta(e.touches[0], e.touches[1]) };
+      serit.classList.add("yakin"); // iki parmak varken sayfa kaymasın
+    } else if (e.touches.length === 1 && zoom.olcek > 1) {
+      mod = "surukle";
+      bas = { x: zoom.x, y: zoom.y, px: e.touches[0].clientX, py: e.touches[0].clientY };
+    }
+  }, { passive: true });
+
+  serit.addEventListener("touchmove", (e) => {
+    if (mod === "sikistir" && e.touches.length === 2) {
+      e.preventDefault();
+      const m = orta(e.touches[0], e.touches[1]);
+      const yeni = bas.olcek * (mesafe(e.touches[0], e.touches[1]) / bas.d);
+      zoomNoktaya(yeni, bas.m.x, bas.m.y, bas);
+      // İki parmağın birlikte kayması resmi de kaydırır.
+      zoom.x += m.x - bas.m.x;
+      zoom.y += m.y - bas.m.y;
+      zoomSinirla();
+      zoomUygula(false);
+    } else if (mod === "surukle" && e.touches.length === 1) {
+      e.preventDefault();
+      zoom.x = bas.x + e.touches[0].clientX - bas.px;
+      zoom.y = bas.y + e.touches[0].clientY - bas.py;
+      zoomSinirla();
+      zoomUygula(false);
+    }
+  }, { passive: false });
+
+  serit.addEventListener("touchend", (e) => {
+    if (mod === "sikistir" && e.touches.length < 2) {
+      if (zoom.olcek < 1.05) zoomSifirla();
+      else zoomUygula(true);
+      // Bir parmak kaldıysa sürüklemeye devam et.
+      mod = e.touches.length === 1 && zoom.olcek > 1 ? "surukle" : null;
+      if (mod) bas = { x: zoom.x, y: zoom.y, px: e.touches[0].clientX, py: e.touches[0].clientY };
+      return;
+    }
+    if (mod === "surukle" && e.touches.length === 0) mod = null;
+
+    // Çift dokunuş: yakınlaştır / geri al (yalnızca fotoğraflarda; videoda dokunuş oynat/durdur).
+    if (e.touches.length || e.changedTouches.length !== 1) return;
+    const t = e.changedTouches[0];
+    const simdi = Date.now();
+    const cift = simdi - sonDokunus.t < 300 && Math.hypot(t.clientX - sonDokunus.x, t.clientY - sonDokunus.y) < 30;
+    sonDokunus = { t: cift ? 0 : simdi, x: t.clientX, y: t.clientY };
+    const el = aktifMedya();
+    if (!cift || !el || el.tagName !== "IMG") return;
+    if (zoom.olcek > 1) { zoomUygula(true); zoomSifirla(); return; }
+    zoom.el = el;
+    zoomNoktaya(2.5, t.clientX, t.clientY, { olcek: 1, x: 0, y: 0 });
+    zoomUygula(true);
+  });
+})();
+
+// --- Kota ---
+const para = (n) => new Intl.NumberFormat("tr-TR", { style: "currency", currency: "USD" }).format(n);
+const KAYNAK_ADI = {
+  H200: "Video GPU (H200)",
+  L40S: "Fotoğraf GPU (L40S)",
+  CPU: "İşlemci",
+  Memory: "Bellek",
+  "Network Egress": "İnternet trafiği",
+};
+
+async function kotaYukle() {
+  const durum = $("#kota-durum");
+  durum.textContent = "Yükleniyor…";
+  $("#kota-yenile").disabled = true;
+  try {
+    const k = await api("kota");
+    const kalan = Math.max(0, k.kredi - k.kullanilan);
+    const oran = Math.min(1, k.kullanilan / k.kredi);
+    $("#kota-kalan").textContent = para(kalan);
+    $("#kota-dolu").style.width = (oran * 100).toFixed(1) + "%";
+    const olcer = $("#kota-olcer");
+    olcer.setAttribute("aria-valuemax", String(k.kredi));
+    olcer.setAttribute("aria-valuenow", k.kullanilan.toFixed(2));
+    $("#kota-kullanilan").textContent = `${para(k.kullanilan)} / ${para(k.kredi)}`;
+    const bugun = new Date().toISOString().slice(0, 10);
+    $("#kota-bugun").textContent = para(k.gunluk[bugun] || 0);
+    $("#kota-odenecek").textContent = para(k.odenecek);
+    $("#kota-yenilenme").textContent = k.donem_bitis
+      ? new Date(k.donem_bitis).toLocaleDateString("tr-TR", { day: "numeric", month: "long" })
+      : "Ay başında";
+    const uyari = $("#kota-uyari");
+    uyari.hidden = oran < 0.8;
+    if (oran >= 1) uyari.textContent = "⚠ Ücretsiz kredi bitti. Harcama limitin varsa üretim durabilir.";
+    else uyari.textContent = `⚠ Ücretsiz kredinin %${Math.round(oran * 100)}'i kullanıldı.`;
+
+    const satirlar = Object.entries(k.kaynaklar).filter(([, v]) => v >= 0.005).sort((a, b) => b[1] - a[1]);
+    const enBuyuk = satirlar.length ? satirlar[0][1] : 1;
+    const kutu = $("#kota-dagilim");
+    kutu.innerHTML = "";
+    if (!satirlar.length) kutu.innerHTML = '<p class="soluk" style="margin:0">Bu ay henüz harcama yok.</p>';
+    for (const [ad, tutar] of satirlar) {
+      const d = document.createElement("div");
+      d.className = "dagilim-satir";
+      d.innerHTML = '<span></span><span></span><div class="dagilim-cubuk"><i></i></div>';
+      d.children[0].textContent = KAYNAK_ADI[ad] || ad;
+      d.children[1].textContent = para(tutar);
+      d.querySelector("i").style.width = ((tutar / enBuyuk) * 100).toFixed(1) + "%";
+      kutu.appendChild(d);
+    }
+    $("#kota-icerik").hidden = false;
+    durum.textContent = "";
+  } catch (err) {
+    durum.textContent = "Kota okunamadı: " + err.message;
+  } finally {
+    $("#kota-yenile").disabled = false;
+  }
+}
+$("#kota-yenile").addEventListener("click", kotaYukle);
 
 // --- Uygulama olarak yükleme (Android "Ana ekrana ekle") ---
 let yuklemeIstemi = null;
