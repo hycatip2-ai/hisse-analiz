@@ -18,7 +18,8 @@ QWEN_YOL = f"{MODEL_DIR}/qwen-image-2.1"
 app = modal.App("foto-qwen-tani")
 modeller = modal.Volume.from_name("foto-modeller")
 gpu_image = modal.Image.debian_slim(python_version="3.12").pip_install(
-    "torch", "diffusers==0.41.0", "transformers>=5.17", "accelerate", "safetensors", "pillow", "huggingface_hub"
+    "torch", "torchvision", "diffusers==0.41.0", "transformers>=5.17", "accelerate", "safetensors", "pillow",
+    "huggingface_hub",
 )
 indirme_image = modal.Image.debian_slim(python_version="3.12").pip_install("huggingface_hub")
 
