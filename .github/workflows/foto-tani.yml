@@ -2,6 +2,9 @@ name: Foto Üret - Teşhis
 
 # Modal kayıtlarını ve kullanım bilgisini gösterir (yalnızca elle çalıştırılır).
 on:
+  push:
+    paths:
+      - ".github/workflows/foto-tani.yml"
   workflow_dispatch:
     inputs:
       sure:
@@ -23,7 +26,7 @@ jobs:
         run: modal container list || true
       - name: Video üretim kayıtları
         run: |
-          modal app logs foto-uret --since "${{ inputs.sure }}" --timestamps --show-function-id \
+          modal app logs foto-uret --since "${{ inputs.sure || '8h' }}" --timestamps --show-function-id \
             --show-container-id --tail 2000 2>&1 | grep -v "/api/is/" | tail -400 || true
       - name: Bu ayın kullanımı
         run: modal billing summary || true
