@@ -4,6 +4,24 @@ Telefondan yazı yazıp fotoğraf ürettiren sistem. Modal (bulut GPU) üzerinde
 **Z-Image-Turbo** modeli çalışır; model ücretsizdir (Apache 2.0), GPU süresi
 Modal'ın aylık ücretsiz kredisinden düşer.
 
+## 0. Bilgisayarsız kurulum (sadece telefon)
+
+Deploy işini GitHub Actions yapar (`.github/workflows/foto-deploy.yml`).
+
+1. https://modal.com adresinde hesap aç.
+2. Modal'da **Settings → API Tokens → New Token**. Çıkan `Token ID` (ak-...) ve
+   `Token Secret` (as-...) değerlerini kopyala.
+3. GitHub'da bu repoda **Settings → Secrets and variables → Actions → New repository secret**
+   ile üç secret ekle:
+   - `MODAL_TOKEN_ID`: Token ID
+   - `MODAL_TOKEN_SECRET`: Token Secret
+   - `FOTO_SIFRE`: fotoğraf sayfası için kendi belirleyeceğin şifre
+4. **Actions** sekmesinde "Foto Üret - Modal'a yükle" işini çalıştır (veya son çalışmayı
+   "Re-run" et). Bitince "Deploy" adımının çıktısındaki `https://...modal.run` adresi senin adresin.
+5. Modal panelinden harcama limiti koy (aşağıdaki 1.5 maddesi).
+
+Kodda değişiklik yapılıp `foto-uret/` klasörüne push edildiğinde deploy kendiliğinden tekrarlanır.
+
 ## 1. Bir kerelik kurulum (bilgisayardan, ~10 dakika)
 
 1. https://modal.com adresinden hesap aç (GitHub ile giriş yapabilirsin).

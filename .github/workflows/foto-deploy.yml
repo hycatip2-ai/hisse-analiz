@@ -1,0 +1,49 @@
+name: Foto Üret - Modal'a yükle
+
+# foto-uret/ klasörünü Modal'a deploy eder; bilgisayar gerekmez.
+# Gerekli GitHub secret'ları: MODAL_TOKEN_ID, MODAL_TOKEN_SECRET, FOTO_SIFRE
+on:
+  push:
+    paths:
+      - "foto-uret/**"
+      - ".github/workflows/foto-deploy.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+      FOTO_SIFRE: ${{ secrets.FOTO_SIFRE }}
+    steps:
+      - name: Secret'lar tanımlı mı?
+        id: kontrol
+        run: |
+          if [ -z "$MODAL_TOKEN_ID" ] || [ -z "$MODAL_TOKEN_SECRET" ] || [ -z "$FOTO_SIFRE" ]; then
+            echo "::warning::MODAL_TOKEN_ID, MODAL_TOKEN_SECRET ve FOTO_SIFRE secret'ları eklenmemiş; deploy atlandı."
+            echo "hazir=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "hazir=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.kontrol.outputs.hazir == 'true'
+
+      - uses: actions/setup-python@v5
+        if: steps.kontrol.outputs.hazir == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Modal'ı kur
+        if: steps.kontrol.outputs.hazir == 'true'
+        run: pip install modal
+
+      - name: Şifreyi Modal'a kaydet
+        if: steps.kontrol.outputs.hazir == 'true'
+        run: modal secret create foto-sifre "SIFRE=$FOTO_SIFRE" --force > /dev/null
+
+      - name: Deploy
+        if: steps.kontrol.outputs.hazir == 'true'
+        working-directory: foto-uret
+        run: modal deploy foto.py
