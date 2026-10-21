@@ -341,9 +341,14 @@ def kota_bilgisi() -> dict:
     ay_basi = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     kaynaklar: dict[str, float] = {}
     gunluk: dict[str, float] = {}
-    # Saatlik: günlük raporda tamamlanmamış gün (bugün) hiç görünmüyor; saatlikte yalnızca
-    # içinde bulunulan saat eksik kalır.
-    for satir in calisma.billing.report(start=ay_basi, resolution="h"):
+    # Günlük rapor tamamlanmamış günü (bugünü) içermez; saatlik rapor ise en fazla 7 gün
+    # kapsar. Bu yüzden ayın geçmiş günleri günlük, bugün saatlik okunur.
+    bugun_basi = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    satirlar = []
+    if bugun_basi > ay_basi:
+        satirlar += calisma.billing.report(start=ay_basi, end=bugun_basi, resolution="d")
+    satirlar += calisma.billing.report(start=bugun_basi, resolution="h")
+    for satir in satirlar:
         gun = satir.interval_start.date().isoformat()
         gunluk[gun] = gunluk.get(gun, 0.0) + float(satir.cost)
         for kaynak, tutar in satir.cost_by_resource.items():
