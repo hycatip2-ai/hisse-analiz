@@ -264,6 +264,15 @@ def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str):
 
     api = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
+    # Modal dosyaları 1970 tarihli sunar; Cache-Control olmazsa tarayıcı bunları
+    # yıllarca taze sayıp eski app.js'i kullanır. Her seferinde ETag ile doğrulat.
+    @api.middleware("http")
+    async def onbellek(request, call_next):
+        yanit = await call_next(request)
+        if request.url.path.startswith("/static/"):
+            yanit.headers["Cache-Control"] = "no-cache"
+        return yanit
+
     def imza(bitis: int) -> str:
         return hmac.new(sifre.encode(), f"oturum:{bitis}".encode(), hashlib.sha256).hexdigest()
 

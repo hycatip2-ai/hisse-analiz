@@ -1,10 +1,10 @@
 // Uygulama kabuğunu önbelleğe alır: önce ağ, ağ yoksa önbellek.
 // API istekleri (/api/) hiç önbelleğe alınmaz.
-const SURUM = "foto-studyo-v3";
+const SURUM = "foto-studyo-v4";
 const KABUK = [
   "/",
-  "/static/style.css",
-  "/static/app.js",
+  "/static/style.css?v=4",
+  "/static/app.js?v=4",
   "/manifest.webmanifest",
   "/static/icon-192.png",
 ];
@@ -25,7 +25,7 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin || url.pathname.startsWith("/api/")) return;
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: "no-cache" })
       .then((r) => {
         if (r.ok) {
           const kopya = r.clone();
