@@ -7,11 +7,12 @@ name: Foto Üret - Video denemesi
 #   islem=tani2: rehberli tam model ile aynı teşhis (~1 $)
 #   islem=qwen: Qwen-Image-2.1 fotoğraf/referans denemesi (~0,3 $)
 #   islem=foto: uygulamadaki Qwen fotoğraf yolunu dener (~0,05 $)
+#   islem=karsilastir: Qwen vs FLUX.2 [dev], LTX-2.5 vs Wan 2.2 karşılaştırması (~1,5-2 $)
 on:
   workflow_dispatch:
     inputs:
       islem:
-        description: "dene, tani, tani2, qwen veya foto"
+        description: "dene, tani, tani2, qwen, foto veya karsilastir"
         default: "dene"
 
 jobs:
@@ -74,3 +75,13 @@ jobs:
         with:
           name: foto-dene
           path: foto-uret/tani-cikti/
+      - name: Model karşılaştırması
+        if: inputs.islem == 'karsilastir'
+        working-directory: foto-uret/araclar
+        timeout-minutes: 55
+        run: modal run karsilastir.py
+      - uses: actions/upload-artifact@v4
+        if: inputs.islem == 'karsilastir'
+        with:
+          name: karsilastir
+          path: foto-uret/araclar/tani-cikti/
