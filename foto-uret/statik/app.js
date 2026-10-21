@@ -262,10 +262,10 @@ function onizlemeOlustur(kayit) {
   const b = document.createElement("button");
   b.className = "sonuc";
   b.style.aspectRatio = ORANLAR[kayit.tur][kayit.boyut];
-  const url = URL.createObjectURL(kayit.blob);
+  const o = { kayit, url: URL.createObjectURL(kayit.blob), el: b };
   if (kayit.tur === "video") {
     const v = document.createElement("video");
-    v.src = url;
+    v.src = o.url;
     v.muted = true;
     v.loop = true;
     v.autoplay = true;
@@ -273,11 +273,12 @@ function onizlemeOlustur(kayit) {
     b.appendChild(v);
   } else {
     const img = document.createElement("img");
-    img.src = url;
+    img.src = o.url;
     img.alt = kayit.prompt;
     b.appendChild(img);
   }
-  b.addEventListener("click", () => goruntule(kayit, url));
+  sonucOgeleri.push(o);
+  dokunmaKur(b, () => goruntule(sonucOgeleri, sonucOgeleri.indexOf(o)), () => menuAc(o));
   return b;
 }
 
@@ -324,6 +325,8 @@ $("#uret").addEventListener("click", async () => {
     const d = { ...baslangic, ...(await isBekle(baslangic.is, video ? 30 : 10)) };
     sonGpu[istek.tur] = Date.now();
     sonuclar.innerHTML = "";
+    sonucOgeleri.forEach((o) => URL.revokeObjectURL(o.url));
+    sonucOgeleri = [];
     const ortak = {
       tur: istek.tur, prompt, mod: istek.mod, boyut: istek.boyut, kalite: istek.kalite,
       genislik: d.genislik, yukseklik: d.yukseklik, tarih: Date.now(),
@@ -351,21 +354,22 @@ $("#uret").addEventListener("click", async () => {
 });
 
 // --- Galeri ---
-let galeriUrller = [];
+// Her öğe: { kayit, url, el } – aynı kayıt hem sonuçlarda hem galeride ayrı öğe olabilir.
+let galeriOgeleri = [];
+let sonucOgeleri = [];
+
 async function galeriCiz() {
-  galeriUrller.forEach(URL.revokeObjectURL);
-  galeriUrller = [];
+  galeriOgeleri.forEach((o) => URL.revokeObjectURL(o.url));
   const kayitlar = (await galeriHepsi()).sort((a, b) => b.tarih - a.tarih);
   const kutu = $("#galeri");
   kutu.innerHTML = "";
   $("#galeri-bos").hidden = kayitlar.length > 0;
-  for (const k of kayitlar) {
-    const url = URL.createObjectURL(k.blob);
-    galeriUrller.push(url);
+  galeriOgeleri = kayitlar.map((k) => ({ kayit: k, url: URL.createObjectURL(k.blob) }));
+  galeriOgeleri.forEach((o, i) => {
     const b = document.createElement("button");
-    if (k.tur === "video") {
+    if (o.kayit.tur === "video") {
       const v = document.createElement("video");
-      v.src = url + "#t=0.1";
+      v.src = o.url + "#t=0.1";
       v.muted = true;
       v.playsInline = true;
       v.preload = "metadata";
@@ -376,109 +380,322 @@ async function galeriCiz() {
       b.appendChild(r);
     } else {
       const img = document.createElement("img");
-      img.src = url;
-      img.alt = k.prompt;
+      img.src = o.url;
+      img.alt = o.kayit.prompt;
       img.loading = "lazy";
       b.appendChild(img);
     }
-    b.addEventListener("click", () => goruntule(k, url));
+    dokunmaKur(b, () => goruntule(galeriOgeleri, galeriOgeleri.indexOf(o)), () => menuAc(o));
+    o.el = b;
     kutu.appendChild(b);
-  }
+  });
 }
 
-// --- Tam ekran görüntüleyici ---
-let acik = null;
-function goruntule(kayit, url) {
-  acik = { kayit, url };
+// --- Kısa dokunuş / uzun basış ---
+function dokunmaKur(el, kisa, uzun) {
+  let zaman = null;
+  let uzunOldu = false;
+  let bx = 0;
+  let by = 0;
+  const iptal = () => { clearTimeout(zaman); zaman = null; };
+  el.addEventListener("pointerdown", (e) => {
+    uzunOldu = false;
+    bx = e.clientX;
+    by = e.clientY;
+    iptal();
+    zaman = setTimeout(() => {
+      zaman = null;
+      uzunOldu = true;
+      if (navigator.vibrate) navigator.vibrate(15);
+      uzun();
+    }, 500);
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (zaman && Math.hypot(e.clientX - bx, e.clientY - by) > 10) iptal();
+  });
+  el.addEventListener("pointerup", iptal);
+  el.addEventListener("pointercancel", iptal);
+  el.addEventListener("contextmenu", (e) => e.preventDefault());
+  el.addEventListener("click", (e) => {
+    if (uzunOldu) { e.preventDefault(); uzunOldu = false; return; }
+    if (kisa) kisa();
+  });
+}
+
+// --- Katmanlar ve geri tuşu ---
+// Görüntüleyici ve menü history'ye kayıt ekler; Android geri tuşu en üstteki katmanı kapatır.
+const katman = { g: false, m: false };
+function katmanEkle(ad) {
+  katman[ad] = true;
+  history.pushState({ g: katman.g, m: katman.m }, "");
+}
+function geri(adim = 1) {
+  return new Promise((tamam) => {
+    window.addEventListener("popstate", () => tamam(), { once: true });
+    history.go(-adim);
+  });
+}
+window.addEventListener("popstate", (e) => {
+  const durum = e.state || {};
+  if (katman.m && !durum.m) menuKapat();
+  if (katman.g && !durum.g) goruntuleyiciKapat();
+});
+
+// --- Tam ekran görüntüleyici: yalnızca resim / video, kaydırarak gezinme ---
+const gz = { liste: [], idx: 0 };
+
+function goruntule(liste, idx) {
+  gz.liste = liste;
+  gz.idx = idx;
   $("#bildirim").hidden = true;
-  const video = kayit.tur === "video";
-  const v = $("#g-video");
-  $("#g-img").hidden = video;
-  v.hidden = !video;
-  if (video) {
-    v.src = url;
-    v.play().catch(() => {});
-  } else {
-    $("#g-img").src = url;
-  }
-  $("#g-canlandir").hidden = video;
-  $("#g-prompt").textContent = kayit.prompt;
-  const mod = modlar.find((m) => m.id === kayit.mod);
-  $("#g-bilgi").textContent = [
-    video ? `Video · ${kayit.sure} sn${kayit.fotodan ? " · fotoğraftan" : ""}` : null,
-    mod ? mod.ad : kayit.mod, BOYUT_ADI[kayit.boyut], `${kayit.genislik}×${kayit.yukseklik}`, `Tohum ${kayit.tohum}`,
-  ].filter(Boolean).join(" · ");
+  const serit = $("#g-serit");
+  serit.innerHTML = "";
+  serit.style.transform = "";
+  serit.style.opacity = "";
+  liste.forEach((o) => {
+    const s = document.createElement("div");
+    s.className = "slayt";
+    dokunmaKur(s, () => slaytDokun(s), () => menuAc(o));
+    serit.appendChild(s);
+  });
   $("#goruntuleyici").hidden = false;
-  history.pushState({ goruntuleyici: true }, "");
+  katmanEkle("g");
+  try {
+    const p = document.documentElement.requestFullscreen?.({ navigationUI: "hide" });
+    if (p) p.catch(() => {});
+  } catch {}
+  requestAnimationFrame(() => {
+    serit.scrollLeft = idx * serit.clientWidth;
+    slaytlariGuncelle();
+  });
+  ipucuGoster();
 }
-function kapat() {
-  const v = $("#g-video");
-  v.pause();
-  v.removeAttribute("src");
+
+// Yalnızca açık slayt ve komşuları medya taşır; uzaktakiler boşaltılır (bellek için).
+function slaytlariGuncelle() {
+  [...$("#g-serit").children].forEach((s, i) => {
+    const o = gz.liste[i];
+    const yakin = Math.abs(i - gz.idx) <= 1;
+    if (yakin && !s.firstChild) {
+      if (o.kayit.tur === "video") {
+        const v = document.createElement("video");
+        v.src = o.url;
+        v.loop = true;
+        v.playsInline = true;
+        v.preload = "auto";
+        s.appendChild(v);
+      } else {
+        const img = document.createElement("img");
+        img.src = o.url;
+        img.alt = "";
+        s.appendChild(img);
+      }
+    } else if (!yakin && s.firstChild) {
+      const v = s.querySelector("video");
+      if (v) v.pause();
+      s.innerHTML = "";
+      s.classList.remove("duraklatildi");
+    }
+    const v = s.querySelector("video");
+    if (v) {
+      if (i === gz.idx) { s.classList.remove("duraklatildi"); v.play().catch(() => s.classList.add("duraklatildi")); }
+      else { v.pause(); v.currentTime = 0; }
+    }
+  });
+}
+
+function slaytDokun(s) {
+  const v = s.querySelector("video");
+  if (!v) return;
+  if (v.paused) { v.play().catch(() => {}); s.classList.remove("duraklatildi"); }
+  else { v.pause(); s.classList.add("duraklatildi"); }
+}
+
+let seritCerceve = 0;
+$("#g-serit").addEventListener("scroll", () => {
+  cancelAnimationFrame(seritCerceve);
+  seritCerceve = requestAnimationFrame(() => {
+    const serit = $("#g-serit");
+    const i = Math.round(serit.scrollLeft / serit.clientWidth);
+    if (i !== gz.idx && i >= 0 && i < gz.liste.length) {
+      gz.idx = i;
+      slaytlariGuncelle();
+    }
+  });
+});
+
+// Aşağı çekince kapanır.
+(() => {
+  const serit = $("#g-serit");
+  let bx = 0;
+  let by = 0;
+  let dikey = false;
+  serit.addEventListener("touchstart", (e) => {
+    bx = e.touches[0].clientX;
+    by = e.touches[0].clientY;
+    dikey = false;
+  }, { passive: true });
+  serit.addEventListener("touchmove", (e) => {
+    const dx = e.touches[0].clientX - bx;
+    const dy = e.touches[0].clientY - by;
+    if (!dikey && dy > 12 && dy > Math.abs(dx) * 1.5) dikey = true;
+    if (dikey) {
+      serit.style.transition = "none";
+      serit.style.transform = `translateY(${Math.max(0, dy)}px)`;
+      serit.style.opacity = String(Math.max(0.3, 1 - dy / 500));
+    }
+  }, { passive: true });
+  serit.addEventListener("touchend", (e) => {
+    if (!dikey) return;
+    const dy = e.changedTouches[0].clientY - by;
+    serit.style.transition = "";
+    serit.style.transform = "";
+    serit.style.opacity = "";
+    if (dy > 110) geri();
+  });
+})();
+
+function ipucuGoster() {
+  if (depo.al("ipucu-goruldu")) return;
+  depo.koy("ipucu-goruldu", "1");
+  const ip = $("#g-ipucu");
+  ip.hidden = false;
+  setTimeout(() => (ip.hidden = true), 3000);
+}
+
+function goruntuleyiciKapat() {
+  katman.g = false;
+  $$("#g-serit video").forEach((v) => v.pause());
+  $("#g-serit").innerHTML = "";
+  $("#g-ipucu").hidden = true;
   $("#goruntuleyici").hidden = true;
-  acik = null;
+  gz.liste = [];
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
 }
-$("#g-kapat").addEventListener("click", () => history.back());
-// Android geri tuşu görüntüleyiciyi kapatsın, uygulamadan çıkmasın.
-window.addEventListener("popstate", kapat);
+// Tam ekrandayken Android geri tuşu önce tam ekrandan çıkar; o an görüntüleyiciyi de kapat.
+document.addEventListener("fullscreenchange", () => {
+  if (!document.fullscreenElement && katman.g && !katman.m) geri();
+});
+
+// --- Uzun basma menüsü ---
+let menuOge = null;
+function menuAc(o) {
+  menuOge = o;
+  $("#bildirim").hidden = true;
+  const k = o.kayit;
+  const video = k.tur === "video";
+  $('#menu [data-is="canlandir"]').hidden = video;
+  $("#menu-bilgi").hidden = true;
+  $("#m-prompt").textContent = k.prompt;
+  const mod = modlar.find((m) => m.id === k.mod);
+  $("#m-detay").textContent = [
+    video ? `Video · ${k.sure} sn${k.fotodan ? " · fotoğraftan" : ""}` : "Fotoğraf",
+    mod ? mod.ad : k.mod, BOYUT_ADI[k.boyut], `${k.genislik}×${k.yukseklik}`, `Tohum ${k.tohum}`,
+    new Date(k.tarih).toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" }),
+  ].filter(Boolean).join(" · ");
+  $("#menu").hidden = false;
+  katmanEkle("m");
+}
+function menuKapat() {
+  katman.m = false;
+  $("#menu").hidden = true;
+  menuOge = null;
+}
+$("#menu-arka").addEventListener("click", () => geri());
 
 const dosyaAdi = (k) => `foto-studyo-${k.tohum}.${k.tur === "video" ? "mp4" : "jpg"}`;
 
-$("#g-kaydet").addEventListener("click", () => {
-  const a = document.createElement("a");
-  a.href = acik.url;
-  a.download = dosyaAdi(acik.kayit);
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-});
+// Görüntüleyici ve menüden çıkıp Üret sayfasına dönerken açık katmanları kapat.
+async function hepsiniKapat() {
+  const adim = (katman.g ? 1 : 0) + (katman.m ? 1 : 0);
+  if (adim) await geri(adim);
+}
 
-$("#g-paylas").addEventListener("click", async () => {
-  const k = acik.kayit;
-  const dosya = new File([k.blob], dosyaAdi(k), { type: k.blob.type });
-  if (navigator.canShare && navigator.canShare({ files: [dosya] })) {
-    try { await navigator.share({ files: [dosya] }); } catch {}
-  } else {
-    bildir("Bu cihaz paylaşımı desteklemiyor; Kaydet'i kullan.");
+async function ogeSil(o) {
+  if (!confirm(o.kayit.tur === "video" ? "Bu video silinsin mi?" : "Bu fotoğraf silinsin mi?")) return;
+  const id = o.kayit.id;
+  await galeriSil(id);
+  for (const liste of [galeriOgeleri, sonucOgeleri]) {
+    for (let i = liste.length - 1; i >= 0; i--) {
+      if (liste[i].kayit.id !== id) continue;
+      if (liste[i].el) liste[i].el.remove();
+      URL.revokeObjectURL(liste[i].url);
+      liste.splice(i, 1);
+    }
   }
-});
+  $("#galeri-bos").hidden = galeriOgeleri.length > 0;
+  if (katman.m) await geri();
+  if (katman.g) {
+    // Görüntüleyicideki slaytı da kaldır; liste boşaldıysa kapat.
+    const serit = $("#g-serit");
+    const slayt = serit.children[gz.idx];
+    if (gz.liste.length === 0) { await geri(); return; }
+    if (slayt && !gz.liste.some((x) => x.kayit.id === id)) {
+      const v = slayt.querySelector("video");
+      if (v) v.pause();
+      slayt.remove();
+      gz.idx = Math.min(gz.idx, gz.liste.length - 1);
+      serit.scrollLeft = gz.idx * serit.clientWidth;
+      slaytlariGuncelle();
+    }
+  }
+  bildir("Silindi.");
+}
 
-$("#g-canlandir").addEventListener("click", () => {
-  const k = acik.kayit;
-  baslangicAyarla(k.blob);
-  turSec("video");
-  segmentSec("boyut", "boyut", k.boyut === "duvar" ? "dikey" : k.boyut);
-  modSec("serbest"); // stil zaten fotoğrafta var
-  $("#prompt").value = k.prompt;
-  $("#tohum").value = "";
-  history.back();
-  sekmeAc("uret");
-  bildir("Fotoğraf eklendi. Nasıl hareket etsin, açıklamaya ekle ve Video üret'e bas.");
-});
-
-$("#g-tekrar").addEventListener("click", () => {
-  const k = acik.kayit;
-  turSec(k.tur || "foto");
-  $("#prompt").value = k.prompt;
-  $("#tohum").value = k.tohum;
-  $(".gelismis").open = true;
-  modSec(k.mod);
-  segmentSec("boyut", "boyut", k.boyut);
-  segmentSec("kalite", "kalite", k.kalite);
-  segmentSec("adet", "adet", 1);
-  if (k.sure) segmentSec("sure", "sure", k.sure);
-  if (k.tur !== "video") baslangicAyarla(null);
-  history.back();
-  sekmeAc("uret");
-  bildir("Ayarlar yüklendi. Açıklamayı değiştirip tekrar üretebilirsin.");
-});
-
-$("#g-sil").addEventListener("click", async () => {
-  if (!confirm("Silinsin mi?")) return;
-  await galeriSil(acik.kayit.id);
-  history.back();
-  if (!$("#sayfa-galeri").hidden) galeriCiz();
-});
+$$("#menu [data-is]").forEach((b) => b.addEventListener("click", async () => {
+  const o = menuOge;
+  if (!o) return;
+  const k = o.kayit;
+  const is = b.dataset.is;
+  if (is === "bilgi") {
+    $("#menu-bilgi").hidden = !$("#menu-bilgi").hidden;
+    return;
+  }
+  if (is === "kaydet") {
+    const a = document.createElement("a");
+    a.href = o.url;
+    a.download = dosyaAdi(k);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    await geri();
+    bildir("İndiriliyor: telefonun İndirilenler klasörüne kaydedilir.");
+  } else if (is === "paylas") {
+    const dosya = new File([k.blob], dosyaAdi(k), { type: k.blob.type });
+    if (navigator.canShare && navigator.canShare({ files: [dosya] })) {
+      await geri();
+      try { await navigator.share({ files: [dosya] }); } catch {}
+    } else {
+      bildir("Bu cihaz paylaşımı desteklemiyor; Kaydet'i kullan.");
+    }
+  } else if (is === "sil") {
+    await ogeSil(o);
+  } else if (is === "canlandir") {
+    await hepsiniKapat();
+    baslangicAyarla(k.blob);
+    turSec("video");
+    segmentSec("boyut", "boyut", k.boyut === "duvar" ? "dikey" : k.boyut);
+    modSec("serbest"); // stil zaten fotoğrafta var
+    $("#prompt").value = k.prompt;
+    $("#tohum").value = "";
+    sekmeAc("uret");
+    bildir("Fotoğraf eklendi. Nasıl hareket etsin, açıklamaya ekle ve Video üret'e bas.");
+  } else if (is === "tekrar") {
+    await hepsiniKapat();
+    turSec(k.tur || "foto");
+    $("#prompt").value = k.prompt;
+    $("#tohum").value = k.tohum;
+    $(".gelismis").open = true;
+    modSec(k.mod);
+    segmentSec("boyut", "boyut", k.boyut);
+    segmentSec("kalite", "kalite", k.kalite);
+    segmentSec("adet", "adet", 1);
+    if (k.sure) segmentSec("sure", "sure", k.sure);
+    if (k.tur !== "video") baslangicAyarla(null);
+    sekmeAc("uret");
+    bildir("Ayarlar yüklendi. Açıklamayı değiştirip tekrar üretebilirsin.");
+  }
+}));
 
 // --- Uygulama olarak yükleme (Android "Ana ekrana ekle") ---
 let yuklemeIstemi = null;
