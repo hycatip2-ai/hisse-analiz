@@ -80,7 +80,11 @@ async function isBekle(kimlik, sinirDk = 10, ilerlemeFn = null) {
   const bas = Date.now();
   while (Date.now() - bas < sinirDk * 60 * 1000) {
     const d = await api("is/" + encodeURIComponent(kimlik));
-    if (d.bitti) return d;
+    if (d.bitti) {
+      // Sonuç bellekte; sunucudaki geçici kopyayı hemen sildir.
+      api("is/" + encodeURIComponent(kimlik) + "/alindi", {}).catch(() => {});
+      return d;
+    }
     if (ilerlemeFn && d.ilerleme) ilerlemeFn(d.ilerleme);
     await new Promise((r) => setTimeout(r, 2500));
   }

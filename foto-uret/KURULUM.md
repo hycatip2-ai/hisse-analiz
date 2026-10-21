@@ -126,6 +126,16 @@ Kurulum (bir kerelik, kredi kartı gerekmez):
 3. GitHub'da **Settings → Secrets and variables → Actions** altına `OPENROUTER_API_KEY` ve
    `TAVILY_API_KEY` adlarıyla ekle, sonra "Foto Üret - Modal'a yükle" işini yeniden çalıştır.
 
+## Gizlilik
+
+- Fotoğraf/video üretimi (referans fotoğraflar dahil) yalnızca senin Modal hesabında çalışır;
+  model üreticisine veya başka bir yapay zeka şirketine veri gönderilmez.
+- Girdiler (açıklama, referans fotoğraflar) ve sonuçlar Modal'ın iş kayıtlarından geçmez; geçici
+  bir kutuya (`foto-teslim` Dict) konur. Girdi GPU okuyunca, sonuç telefon teslim alınca hemen
+  silinir. Teslim alınamayan kayıtları Modal 7 gün işlem görmeyince kendisi siler.
+- Galeri yalnızca telefonda saklanır.
+- Araştırma asistanına yazılanlar dış servislere (OpenRouter, model sağlayıcı, Tavily) gider.
+
 ## Maliyet
 
 - 2 dakika kullanılmazsa GPU kendiliğinden kapanır; kapalıyken ücret yok.

@@ -21,6 +21,7 @@ Yayına almak için:  modal deploy foto.py
 import io
 import os
 import random
+import uuid
 from pathlib import Path
 
 import modal
@@ -109,6 +110,17 @@ AYLIK_KREDI = 30  # Modal Starter planının aylık ücretsiz kredisi ($)
 arastirma_secret = modal.Secret.from_name("foto-arastirma")
 # Araştırma ilerlemesi (iş kimliği -> son adımlar) ve günlük istek sayacı
 arastirma_durum = modal.Dict.from_name("foto-arastirma-durum", create_if_missing=True)
+# Gizlilik: GPU işlerinin girdileri (açıklama, referans fotoğraflar) ve sonuçları Modal'ın iş
+# kayıtlarından geçmez; bu geçici kutuya konur. Girdi GPU okuyunca, sonuç telefon teslim alınca
+# silinir. Alınmayan kayıtları Modal 7 gün işlem görmeyince kendisi siler.
+teslim = modal.Dict.from_name("foto-teslim", create_if_missing=True)
+
+
+def _teslim_calistir(anahtar: str, fn) -> dict:
+    """Girdiyi kutudan alıp hemen siler, sonucu kutuya bırakır; iş kaydında yalnızca bu işaret kalır."""
+    args = teslim.pop(f"girdi:{anahtar}")
+    teslim[f"sonuc:{anahtar}"] = fn(*args)
+    return {"teslim": True}
 
 # Modlar: kullanıcının yazdığı açıklamanın sonuna eklenen stil tarifleri.
 MODLAR = [
@@ -203,7 +215,10 @@ class Uretici:
         return True
 
     @modal.method()
-    def uret(self, prompt: str, genislik: int, yukseklik: int, adet: int, tohum: int | None):
+    def uret(self, anahtar: str):
+        return _teslim_calistir(anahtar, self._uret)
+
+    def _uret(self, prompt: str, genislik: int, yukseklik: int, adet: int, tohum: int | None):
         import torch
 
         if tohum is None:
@@ -276,8 +291,11 @@ class QwenUretici:
         return True
 
     @modal.method()
-    def uret(self, prompt: str, genislik: int | None, yukseklik: int | None, adet: int, tohum: int | None,
-             referanslar: list[bytes] | None = None, cozunurluk: int = 1024):
+    def uret(self, anahtar: str):
+        return _teslim_calistir(anahtar, self._uret)
+
+    def _uret(self, prompt: str, genislik: int | None, yukseklik: int | None, adet: int, tohum: int | None,
+              referanslar: list[bytes] | None = None, cozunurluk: int = 1024):
         self._hata_varsa()
         import torch
         from PIL import Image
@@ -416,8 +434,11 @@ class VideoUretici:
         return True
 
     @modal.method()
-    def uret(self, prompt: str, genislik: int, yukseklik: int, kare: int, tohum: int | None,
-             resim: bytes | None):
+    def uret(self, anahtar: str):
+        return _teslim_calistir(anahtar, self._uret)
+
+    def _uret(self, prompt: str, genislik: int, yukseklik: int, kare: int, tohum: int | None,
+              resim: bytes | None):
         self._hata_varsa()
         import tempfile
 
@@ -519,7 +540,11 @@ def _sayac_anahtari() -> str:
 
 
 @app.function(image=arastirma_image, secrets=[arastirma_secret], timeout=900)
-def arastir(tur: str, mesajlar: list[dict], hedef: str) -> dict:
+def arastir(anahtar: str) -> dict:
+    return _teslim_calistir(anahtar, _arastir)
+
+
+def _arastir(tur: str, mesajlar: list[dict], hedef: str) -> dict:
     """Araştırma asistanını çalıştırır; ilerlemeyi telefon görebilsin diye Dict'e yazar."""
     import arastirma
 
@@ -545,6 +570,14 @@ def arastir(tur: str, mesajlar: list[dict], hedef: str) -> dict:
     return sonuc
 
 
+def _uzak(metot, *args):
+    """Denemeler için: uygulamadaki gibi girdiyi kutuya koy, çalıştır, sonucu kutudan al ve sil."""
+    anahtar = uuid.uuid4().hex
+    teslim[f"girdi:{anahtar}"] = args
+    metot.remote(anahtar)
+    return teslim.pop(f"sonuc:{anahtar}")
+
+
 @app.local_entrypoint()
 def foto_dene():
     """Qwen-Image-2.1'i uygulamadaki yoldan dener (yazıdan + referanslı): modal run foto.py::foto_dene"""
@@ -553,12 +586,12 @@ def foto_dene():
     Path("tani-cikti").mkdir(exist_ok=True)
     bas = time.time()
     g, y = QWEN_BOYUTLARI["eniyi"]["dikey"]
-    ilk = QwenUretici().uret.remote("a smiling man with a red scarf in a snowy park, realistic photo", g, y, 1, 5)
+    ilk = _uzak(QwenUretici().uret, "a smiling man with a red scarf in a snowy park, realistic photo", g, y, 1, 5)
     print(f"yazıdan: {ilk[0]['genislik']}x{ilk[0]['yukseklik']}, {time.time() - bas:.0f} sn (yükleme dahil)")
     Path("tani-cikti/foto_yazidan.jpg").write_bytes(ilk[0]["jpeg"])
     bas = time.time()
-    ref = QwenUretici().uret.remote("The same man from the reference, now sitting in a cozy library reading a book",
-                                    None, None, 1, 6, [ilk[0]["jpeg"]], QWEN_COZUNURLUK["eniyi"])
+    ref = _uzak(QwenUretici().uret, "The same man from the reference, now sitting in a cozy library reading a book",
+                None, None, 1, 6, [ilk[0]["jpeg"]], QWEN_COZUNURLUK["eniyi"])
     print(f"referanslı: {ref[0]['genislik']}x{ref[0]['yukseklik']}, {time.time() - bas:.0f} sn")
     Path("tani-cikti/foto_referansli.jpg").write_bytes(ref[0]["jpeg"])
 
@@ -573,8 +606,8 @@ def video_dene():
     print(f"Model yüklendi: {time.time() - bas:.0f} sn")
     g, y = VIDEO_BOYUTLARI["dikey"]
     bas = time.time()
-    sonuc = VideoUretici().uret.remote("a woman smiling and talking to the camera, close-up", g, y,
-                                       VIDEO_KARELERI[5], 1234, None)
+    sonuc = _uzak(VideoUretici().uret, "a woman smiling and talking to the camera, close-up", g, y,
+                  VIDEO_KARELERI[5], 1234, None)
     print(f"tam boy 5 sn: {g}x{y} -> {len(sonuc['mp4']) / 1e6:.1f} MB, {time.time() - bas:.0f} sn")
     print("Geliştirilmiş açıklama:", sonuc["gelismis_prompt"])
     Path("tani-cikti").mkdir(exist_ok=True)
@@ -614,7 +647,7 @@ def kota_bilgisi() -> dict:
 
 
 def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None,
-                     ilerleme_al=None, istek_sayaci=None):
+                     ilerleme_al=None, istek_sayaci=None, teslim_onayla=None):
     """Web uygulamasını kurar. Yerel testte sahte fonksiyonlar verilebilir.
 
     GPU işleri arka planda başlatılır ve iş kimliği hemen döner; telefon
@@ -761,6 +794,13 @@ def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None
                 kimlik = baslat("foto", prompt, genislik, yukseklik, istek.adet, istek.tohum)
         return {"is": kimlik, "genislik": genislik, "yukseklik": yukseklik}
 
+    @api.post("/api/is/{kimlik}/alindi", dependencies=[Depends(oturum_kontrol)])
+    def is_alindi(kimlik: str):
+        """Telefon sonucu aldı: sunucudaki geçici kopya hemen silinir."""
+        if teslim_onayla:
+            teslim_onayla(kimlik)
+        return {"silindi": True}
+
     @api.get("/api/is/{kimlik}", dependencies=[Depends(oturum_kontrol)])
     def is_durumu(kimlik: str):
         try:
@@ -804,6 +844,7 @@ def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None
 
 
 def _modal_baslat(is_turu: str, *args) -> str:
+    """İşi başlatır. İş kimliği "<FunctionCall>.<teslim anahtarı>" biçimindedir (ısıtmada yalnızca ilki)."""
     sinif, metot = {
         "foto": (Uretici, "uret"),
         "isit_foto": (Uretici, "isit"),
@@ -813,9 +854,29 @@ def _modal_baslat(is_turu: str, *args) -> str:
         "isit_video": (VideoUretici, "isit"),
         "arastir": (None, None),
     }[is_turu]
-    if is_turu == "arastir":
-        return arastir.spawn(*args).object_id
-    return getattr(sinif(), metot).spawn(*args).object_id
+    fn = arastir if is_turu == "arastir" else getattr(sinif(), metot)
+    if not args:  # ısıtma: taşınacak veri yok
+        return fn.spawn().object_id
+    anahtar = uuid.uuid4().hex
+    teslim[f"girdi:{anahtar}"] = args
+    return f"{fn.spawn(anahtar).object_id}.{anahtar}"
+
+
+def _modal_sonuc(kimlik: str):
+    fc_id, _, anahtar = kimlik.partition(".")
+    sonuc = modal.FunctionCall.from_id(fc_id).get(timeout=0)  # hazır değilse TimeoutError
+    if not anahtar:
+        return sonuc
+    veri = teslim.get(f"sonuc:{anahtar}")
+    if veri is None:
+        raise RuntimeError("Sonuç bulunamadı; daha önce teslim alınmış olabilir.")
+    return veri
+
+
+def _modal_teslim_onayla(kimlik: str):
+    _, _, anahtar = kimlik.partition(".")
+    if anahtar:
+        teslim.pop(f"sonuc:{anahtar}", None)
 
 
 @app.function(image=web_image, secrets=[sifre_secret, kota_secret], timeout=900)
@@ -825,9 +886,10 @@ def web():
     return uygulama_olustur(
         sifre=os.environ["SIFRE"],
         baslat=_modal_baslat,
-        sonuc_al=lambda kimlik: modal.FunctionCall.from_id(kimlik).get(timeout=0),
+        sonuc_al=_modal_sonuc,
         statik_dir=STATIK_DIR,
         kota_al=kota_bilgisi,
-        ilerleme_al=lambda kimlik: arastirma_durum.get(kimlik),
+        ilerleme_al=lambda kimlik: arastirma_durum.get(kimlik.partition(".")[0]),
         istek_sayaci=lambda: arastirma_durum.get(_sayac_anahtari(), 0),
+        teslim_onayla=_modal_teslim_onayla,
     )
