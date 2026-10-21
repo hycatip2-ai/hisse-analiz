@@ -1,14 +1,20 @@
 name: Foto Üret - Video denemesi
 
-# Video modelini gerçek GPU'da yükleyip kısa bir video üretir ve süreleri yazar
-# (yaklaşık 0,3-0,6 $ GPU süresi harcar). Yalnızca elle başlatılır; kendiliğinden hiç çalışmaz.
+# Video modelini gerçek GPU'da çalıştırır (GPU kredisi harcar). Yalnızca elle başlatılır;
+# kendiliğinden hiç çalışmaz.
+#   islem=dene: kısa video üretip süreleri yazar (~0,3-0,6 $)
+#   islem=tani: kalite teşhisi; varyantları üretip kareleri artifact olarak yükler (~0,5-1 $)
 on:
   workflow_dispatch:
+    inputs:
+      islem:
+        description: "dene veya tani"
+        default: "dene"
 
 jobs:
   dene:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     env:
       MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
       MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
@@ -19,5 +25,15 @@ jobs:
           python-version: "3.12"
       - run: pip install modal
       - name: Video denemesi
+        if: inputs.islem != 'tani'
         working-directory: foto-uret
         run: modal run foto.py::video_dene
+      - name: Video kalite teşhisi
+        if: inputs.islem == 'tani'
+        working-directory: foto-uret
+        run: modal run araclar/video_tani.py
+      - uses: actions/upload-artifact@v4
+        if: inputs.islem == 'tani'
+        with:
+          name: video-tani
+          path: foto-uret/tani-cikti/
