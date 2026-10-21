@@ -4,11 +4,12 @@ name: Foto Üret - Video denemesi
 # kendiliğinden hiç çalışmaz.
 #   islem=dene: kısa video üretip süreleri yazar (~0,3-0,6 $)
 #   islem=tani: kalite teşhisi; varyantları üretip kareleri artifact olarak yükler (~0,5-1 $)
+#   islem=tani2: rehberli tam model ile aynı teşhis (~1 $)
 on:
   workflow_dispatch:
     inputs:
       islem:
-        description: "dene veya tani"
+        description: "dene, tani veya tani2"
         default: "dene"
 
 jobs:
@@ -25,13 +26,22 @@ jobs:
           python-version: "3.12"
       - run: pip install modal
       - name: Video denemesi
-        if: inputs.islem != 'tani'
+        if: inputs.islem != 'tani' && inputs.islem != 'tani2'
         working-directory: foto-uret
         run: modal run foto.py::video_dene
       - name: Video kalite teşhisi
         if: inputs.islem == 'tani'
         working-directory: foto-uret
         run: modal run araclar/video_tani.py
+      - name: Video kalite teşhisi (tam model)
+        if: inputs.islem == 'tani2'
+        working-directory: foto-uret/araclar
+        run: modal run video_tani_tam.py
+      - uses: actions/upload-artifact@v4
+        if: inputs.islem == 'tani2'
+        with:
+          name: video-tani-tam
+          path: foto-uret/araclar/tani-cikti/
       - uses: actions/upload-artifact@v4
         if: inputs.islem == 'tani'
         with:
