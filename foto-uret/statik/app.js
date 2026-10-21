@@ -6,10 +6,17 @@ const $$ = (s) => document.querySelectorAll(s);
 // GPU 2 dk kullanılmazsa kapanır (foto.py: scaledown_window=120).
 const GPU_UYKU_MS = 110 * 1000;
 
-const ayar = { tur: "foto", mod: "serbest", boyut: "kare", adet: 1, kalite: "standart", sure: 5 };
+const ayar = { tur: "foto", mod: "serbest", boyut: "kare", adet: 1, kalite: "eniyi", sure: 5 };
 let modlar = [];
-const sonGpu = { foto: 0, video: 0 };
-const isiniyor = { foto: false, video: false };
+// GPU'lar: foto = Z-Image (Hızlı), qwen = Qwen-Image-2.1 (En iyi / HD / referanslı), video = LTX
+const sonGpu = { foto: 0, qwen: 0, video: 0 };
+const isiniyor = { foto: false, qwen: false, video: false };
+let referanslar = []; // fotoğraf için referans görseller (Blob)
+const REFERANS_SINIRI = 10;
+function gpuAnahtari() {
+  if (ayar.tur === "video") return "video";
+  return referanslar.length || ayar.kalite !== "hizli" ? "qwen" : "foto";
+}
 let uretiliyor = false;
 let baslangicResim = null; // video için başlangıç fotoğrafı (Blob)
 
@@ -187,7 +194,7 @@ function segmentSec(id, anahtar, deger) {
 segmentKur("tur", "tur", false, turGuncelle);
 segmentKur("boyut", "boyut");
 segmentKur("adet", "adet", true);
-segmentKur("kalite", "kalite");
+segmentKur("kalite", "kalite", false, sunucuCiz);
 segmentKur("sure", "sure", true);
 
 function turSec(tur) {
@@ -221,6 +228,44 @@ $("#baslangic-dosya").addEventListener("change", (e) => {
 });
 $("#baslangic-sil").addEventListener("click", () => baslangicAyarla(null));
 
+// --- Referans görseller (fotoğraf) ---
+function referanslariCiz() {
+  const kutu = $("#referanslar");
+  kutu.querySelectorAll(".referans").forEach((e) => {
+    URL.revokeObjectURL(e.querySelector("img").src);
+    e.remove();
+  });
+  const ekle = kutu.querySelector(".referans-ekle");
+  referanslar.forEach((blob, i) => {
+    const d = document.createElement("div");
+    d.className = "referans";
+    d.innerHTML = '<img alt=""><button aria-label="Kaldır"><svg><use href="#i-kapat"/></svg></button>';
+    d.querySelector("img").src = URL.createObjectURL(blob);
+    d.querySelector("button").addEventListener("click", () => {
+      referanslar.splice(i, 1);
+      referanslariCiz();
+    });
+    kutu.insertBefore(d, ekle);
+  });
+  ekle.hidden = referanslar.length >= REFERANS_SINIRI;
+  $("#referans-ipucu").textContent = referanslar.length
+    ? `${referanslar.length} referans. En iyi kalite modeli kullanılır; boyut son referanstan alınır.`
+    : 'Bir kişi, ürün veya fotoğraf ekleyip ne yapılacağını yaz: "bu kadını sahilde göster", "arka planı değiştir". Sadece kendi fotoğraflarını veya izni olan kişilerinkini kullan.';
+  sunucuCiz();
+}
+function referansEkle(bloblar) {
+  const yer = REFERANS_SINIRI - referanslar.length;
+  if (yer <= 0) { bildir(`En fazla ${REFERANS_SINIRI} referans eklenebilir.`); return false; }
+  referanslar.push(...bloblar.slice(0, yer));
+  referanslariCiz();
+  if (bloblar.length > yer) bildir(`Yalnızca ${yer} tanesi eklendi (en fazla ${REFERANS_SINIRI}).`);
+  return true;
+}
+$("#referans-dosya").addEventListener("change", (e) => {
+  referansEkle([...e.target.files]);
+  e.target.value = "";
+});
+
 // --- Sekmeler ---
 function sekmeAc(ad) {
   $$(".sekmeler button").forEach((b) => b.classList.toggle("secili", b.dataset.sayfa === ad));
@@ -239,7 +284,7 @@ $$(".sekmeler button").forEach((b) => b.addEventListener("click", () => sekmeAc(
 
 // --- Sunucu (GPU) durumu: seçili türün GPU'su gösterilir ---
 function sunucuCiz() {
-  const t = ayar.tur;
+  const t = gpuAnahtari();
   const s = $("#sunucu");
   const durum = isiniyor[t] || uretiliyor ? "isiniyor" : Date.now() - sonGpu[t] < GPU_UYKU_MS ? "hazir" : "uyku";
   s.className = "sunucu " + durum;
@@ -248,12 +293,12 @@ function sunucuCiz() {
 setInterval(sunucuCiz, 5000);
 
 async function isit() {
-  const t = ayar.tur;
+  const t = gpuAnahtari();
   if (isiniyor[t] || uretiliyor || Date.now() - sonGpu[t] < GPU_UYKU_MS) return;
   isiniyor[t] = true;
   sunucuCiz();
   try {
-    const d = await api("isit", { tur: t });
+    const d = await api("isit", { tur: ayar.tur, kalite: t === "qwen" ? (ayar.kalite === "hd" ? "hd" : "eniyi") : "hizli" });
     await isBekle(d.is);
     sonGpu[t] = Date.now();
   } catch {}
@@ -267,7 +312,8 @@ $("#prompt").addEventListener("focus", isit);
 function onizlemeOlustur(kayit) {
   const b = document.createElement("button");
   b.className = "sonuc";
-  b.style.aspectRatio = ORANLAR[kayit.tur][kayit.boyut];
+  b.style.aspectRatio = kayit.genislik && kayit.yukseklik
+    ? `${kayit.genislik} / ${kayit.yukseklik}` : ORANLAR[kayit.tur][kayit.boyut];
   const o = { kayit, url: URL.createObjectURL(kayit.blob), el: b };
   if (kayit.tur === "video") {
     const v = document.createElement("video");
@@ -299,6 +345,8 @@ $("#uret").addEventListener("click", async () => {
     adet: video ? 1 : ayar.adet, kalite: ayar.kalite, sure: ayar.sure,
     tohum: tohumMetin === "" ? null : Number(tohumMetin),
   };
+  const gpu = gpuAnahtari();
+  const refSayisi = video ? 0 : referanslar.length;
 
   uretiliyor = true;
   sunucuCiz();
@@ -309,12 +357,12 @@ $("#uret").addEventListener("click", async () => {
   for (let i = 0; i < istek.adet; i++) {
     const d = document.createElement("div");
     d.className = "iskelet";
-    d.style.aspectRatio = ORANLAR[istek.tur][istek.boyut];
+    d.style.aspectRatio = refSayisi ? "1 / 1" : ORANLAR[istek.tur][istek.boyut];
     sonuclar.appendChild(d);
   }
   const durum = $("#durum");
   durum.hidden = false;
-  const soguk = Date.now() - sonGpu[istek.tur] > GPU_UYKU_MS;
+  const soguk = Date.now() - sonGpu[gpu] > GPU_UYKU_MS;
   const bas = Date.now();
   const sayac = setInterval(() => {
     const sn = Math.round((Date.now() - bas) / 1000);
@@ -327,20 +375,24 @@ $("#uret").addEventListener("click", async () => {
 
   try {
     if (video && baslangicResim) istek.resim = await resimBase64(baslangicResim);
+    if (refSayisi) istek.referanslar = await Promise.all(referanslar.map((r) => resimBase64(r, 1536)));
     const baslangic = await api("uret", istek);
     const d = { ...baslangic, ...(await isBekle(baslangic.is, video ? 30 : 10)) };
-    sonGpu[istek.tur] = Date.now();
+    sonGpu[gpu] = Date.now();
     sonuclar.innerHTML = "";
     sonucOgeleri.forEach((o) => URL.revokeObjectURL(o.url));
     sonucOgeleri = [];
     const ortak = {
       tur: istek.tur, prompt, mod: istek.mod, boyut: istek.boyut, kalite: istek.kalite,
       genislik: d.genislik, yukseklik: d.yukseklik, tarih: Date.now(),
+      model: video ? "LTX-2.5" : gpu === "qwen" ? "Qwen-Image-2.1" : "Z-Image-Turbo",
+      referansSayisi: refSayisi,
     };
     const kayitlar = video
       ? [{ ...ortak, id: Date.now() + "-v" + d.tohum, blob: base64Blob(d.video, "video/mp4"), tohum: d.tohum,
            sure: istek.sure, fotodan: !!istek.resim, gelismisPrompt: d.gelismis_prompt || null }]
-      : d.gorseller.map((g) => ({ ...ortak, id: Date.now() + "-" + g.tohum, blob: base64Blob(g.veri, "image/jpeg"), tohum: g.tohum }));
+      : d.gorseller.map((g) => ({ ...ortak, id: Date.now() + "-" + g.tohum, blob: base64Blob(g.veri, "image/jpeg"), tohum: g.tohum,
+                                    genislik: g.genislik || d.genislik, yukseklik: g.yukseklik || d.yukseklik }));
     for (const k of kayitlar) {
       await galeriEkle(k);
       sonuclar.appendChild(onizlemeOlustur(k));
@@ -596,11 +648,14 @@ function menuAc(o) {
   const k = o.kayit;
   const video = k.tur === "video";
   $('#menu [data-is="canlandir"]').hidden = video;
+  $('#menu [data-is="referans"]').hidden = video;
   $("#menu-bilgi").hidden = true;
   $("#m-prompt").textContent = k.prompt;
   const mod = modlar.find((m) => m.id === k.mod);
   $("#m-detay").textContent = [
     video ? `Video · ${k.sure} sn${k.fotodan ? " · fotoğraftan" : ""}` : "Fotoğraf",
+    k.model || null,
+    k.referansSayisi ? `${k.referansSayisi} referans` : null,
     mod ? mod.ad : k.mod, BOYUT_ADI[k.boyut], `${k.genislik}×${k.yukseklik}`, `Tohum ${k.tohum}`,
     new Date(k.tarih).toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" }),
   ].filter(Boolean).join(" · ");
@@ -694,6 +749,11 @@ $$("#menu [data-is]").forEach((b) => b.addEventListener("click", async () => {
     $("#tohum").value = "";
     sekmeAc("uret");
     bildir("Fotoğraf eklendi. Nasıl hareket etsin, açıklamaya ekle ve Video üret'e bas.");
+  } else if (is === "referans") {
+    await hepsiniKapat();
+    turSec("foto");
+    sekmeAc("uret");
+    if (referansEkle([k.blob])) bildir("Referans eklendi. Ne yapılacağını yaz ve Üret'e bas.");
   } else if (is === "tekrar") {
     await hepsiniKapat();
     turSec(k.tur || "foto");
@@ -702,7 +762,7 @@ $$("#menu [data-is]").forEach((b) => b.addEventListener("click", async () => {
     $(".gelismis").open = true;
     modSec(k.mod);
     segmentSec("boyut", "boyut", k.boyut);
-    segmentSec("kalite", "kalite", k.kalite);
+    segmentSec("kalite", "kalite", ["eniyi", "hd"].includes(k.kalite) ? k.kalite : "hizli");
     segmentSec("adet", "adet", 1);
     if (k.sure) segmentSec("sure", "sure", k.sure);
     if (k.tur !== "video") baslangicAyarla(null);

@@ -8,7 +8,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/static/icon-192.png">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-<link rel="stylesheet" href="/static/style.css?v=10">
+<link rel="stylesheet" href="/static/style.css?v=11">
 <title>Foto Stüdyo</title>
 </head>
 <body>
@@ -65,6 +65,14 @@
       <p class="ipucu" id="prompt-ipucu">İngilizce yazarsan daha iyi sonuç alırsın.</p>
     </div>
 
+    <div class="kart referans-kart sadece-foto">
+      <div class="etiket">Referans görseller <span class="normal">(isteğe bağlı, en fazla 10)</span></div>
+      <div id="referanslar" class="referanslar">
+        <label class="referans-ekle" aria-label="Referans görsel ekle"><input id="referans-dosya" type="file" accept="image/*" multiple hidden><svg><use href="#i-yeni"/></svg></label>
+      </div>
+      <p class="ipucu" id="referans-ipucu">Bir kişi, ürün veya fotoğraf ekleyip ne yapılacağını yaz: "bu kadını sahilde göster", "arka planı değiştir". Sadece kendi fotoğraflarını veya izni olan kişilerinkini kullan.</p>
+    </div>
+
     <div class="kart baslangic sadece-video">
       <div class="etiket">Başlangıç fotoğrafı <span class="normal">(isteğe bağlı)</span></div>
       <div id="baslangic-bos">
@@ -108,7 +116,7 @@
       <div>
         <div class="etiket bosluk">Kalite</div>
         <div class="segment" id="kalite" role="radiogroup" aria-label="Kalite">
-          <button data-v="standart" class="secili">Standart</button><button data-v="yuksek">Yüksek</button>
+          <button data-v="hizli">Hızlı</button><button data-v="eniyi" class="secili">En iyi</button><button data-v="hd">HD</button>
         </div>
       </div>
     </div>
@@ -212,6 +220,7 @@
     <button data-is="kaydet" role="menuitem"><svg><use href="#i-indir"/></svg>Kaydet</button>
     <button data-is="paylas" role="menuitem"><svg><use href="#i-paylas"/></svg>Paylaş</button>
     <button data-is="canlandir" role="menuitem"><svg><use href="#i-video"/></svg>Canlandır</button>
+    <button data-is="referans" role="menuitem"><svg><use href="#i-foto"/></svg>Referans olarak kullan</button>
     <button data-is="tekrar" role="menuitem"><svg><use href="#i-tekrar"/></svg>Tekrar kullan</button>
     <button data-is="bilgi" role="menuitem"><svg><use href="#i-bilgi"/></svg>Bilgi</button>
     <button data-is="sil" role="menuitem" class="tehlike"><svg><use href="#i-sil"/></svg>Sil</button>
@@ -220,6 +229,6 @@
 
 <div id="bildirim" class="bildirim" hidden></div>
 
-<script src="/static/app.js?v=10"></script>
+<script src="/static/app.js?v=11"></script>
 </body>
 </html>

@@ -59,6 +59,12 @@ jobs:
         working-directory: foto-uret
         run: modal deploy foto.py
 
+      # Qwen-Image-2.1 (~33 GB) fotoğraf modelini GPU'suz makinede indirir; zaten varsa hızlıca geçer.
+      - name: Fotoğraf modelini indir
+        if: steps.kontrol.outputs.hazir == 'true'
+        working-directory: foto-uret
+        run: modal run foto.py::foto_modeli_indir
+
       # Video modelini (~115 GB) GPU'suz ucuz bir makinede indirir; zaten varsa hızlıca geçer.
       - name: Video modelini indir
         if: steps.kontrol.outputs.hazir == 'true'

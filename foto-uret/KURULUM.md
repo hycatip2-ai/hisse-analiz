@@ -1,7 +1,8 @@
 # Foto Stüdyo: Kurulum
 
 Telefona kurulabilen yapay zeka fotoğraf ve video üretme uygulaması (PWA). Modal (bulut GPU)
-üzerinde fotoğraf için **Z-Image-Turbo** (Apache 2.0), video için **LTX-2.5** (sesli video;
+üzerinde fotoğraf için **Qwen-Image-2.1** (en iyi kalite ve referans görseller; Qwen araştırma
+lisansı, kişisel kullanım) ve hızlı mod için **Z-Image-Turbo** (Apache 2.0), video için **LTX-2.5** (sesli video;
 yıllık geliri 10 milyon $ altı için ücretsiz LTX lisansı) çalışır. GPU süresi Modal'ın
 aylık ücretsiz kredisinden düşer.
 
@@ -65,6 +66,16 @@ Kodda değişiklik yapılıp `foto-uret/` klasörüne push edildiğinde deploy k
 - İngilizce açıklamalar en iyi sonucu verir.
 - Aynı "tohum" sayısı ile aynı açıklama aynı resmi verir; beğendiğin bir sonucu
   küçük değişikliklerle tekrar üretmek için işe yarar.
+
+## Fotoğraf: kalite ve referans görseller
+
+- **Kalite:** *Hızlı* = Z-Image-Turbo (birkaç saniye); *En iyi* = Qwen-Image-2.1 (~1 MP, ~20 sn);
+  *HD* = Qwen-Image-2.1 (~2 MP, ~40 sn). Fotoğraf başına maliyet ~1 sent.
+- **Referans görseller:** Fotoğraf modunda 10'a kadar görsel ekleyip ne yapılacağını yaz
+  ("bu kadını sahilde göster", "arka planı değiştir", "bu iki kişiyi aynı karede göster").
+  Kişi/ürün kimliği korunur. Galeride uzun basıp **Referans olarak kullan** ile de eklenir.
+  Referans varken Qwen kullanılır ve boyut son referansın oranından alınır.
+- Sadece kendi fotoğraflarını veya izni olan kişilerinkini kullan.
 
 ## Video
 

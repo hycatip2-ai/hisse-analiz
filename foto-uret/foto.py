@@ -1,6 +1,8 @@
 """Foto Stüdyo: telefondan görsel ve video üretme uygulaması (Modal).
 
-- Uretici: GPU (L40S) üzerinde Z-Image-Turbo ile fotoğraf üretir.
+- Uretici: GPU (L40S) üzerinde Z-Image-Turbo ile hızlı fotoğraf üretir ("Hızlı" kalite).
+- QwenUretici: GPU (L40S) üzerinde Qwen-Image-2.1 ile en kaliteli fotoğrafı üretir; 10'a kadar
+  referans görselle (kişi/ürün kimliği korunur) üretim ve düzenleme yapar.
 - VideoUretici: GPU (H200) üzerinde LTX-2.5 ile sesli video üretir
   (yazıdan veya bir fotoğraftan). Açıklama önce Gemma 4 ile ayrıntılandırılır;
   1. aşamada tam (SFT) model rehberlikle (CFG + STG + negatif liste) yarım
@@ -25,6 +27,8 @@ import modal
 
 MODEL_ID = "Tongyi-MAI/Z-Image-Turbo"
 MODEL_DIR = "/modeller"
+QWEN_MODEL_ID = "Qwen/Qwen-Image-2.1"  # Qwen araştırma lisansı (kişisel kullanım)
+QWEN_YOL = f"{MODEL_DIR}/qwen-image-2.1"
 VIDEO_MODEL_ID = "Lightricks/LTX-2.5-Diffusers"  # erişim için HF hesabı + token gerekir
 VIDEO_DIR = "/video-modeller"
 VIDEO_YOL = f"{VIDEO_DIR}/ltx-2.5"
@@ -50,6 +54,20 @@ gpu_image = modal.Image.debian_slim(python_version="3.12").pip_install(
     "transformers",
     "accelerate",
     "safetensors",
+)
+qwen_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .pip_install(
+        "torch",
+        "torchvision",  # Qwen3VL işleyicisi içe aktarıyor
+        "diffusers==0.41.0",
+        "transformers>=5.17",
+        "accelerate",
+        "safetensors",
+        "pillow",
+        "huggingface_hub",
+    )
+    .env({"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"})
 )
 video_gpu_image = modal.Image.debian_slim(python_version="3.12").pip_install(
     "torch",
@@ -130,7 +148,22 @@ VIDEO_BOYUTLARI = {
 VIDEO_KARELERI = {5: 121, 10: 241}
 
 
+# Qwen-Image-2.1: "En iyi" ~1 MP (L40S'te ~20 sn), "HD" ~2 MP (~40 sn); 4 MP L40S belleğine sığmıyor.
+QWEN_BOYUTLARI = {
+    "eniyi": {"kare": (1024, 1024), "dikey": (768, 1344), "yatay": (1344, 768), "duvar": (736, 1600)},
+    "hd": {"kare": (1440, 1440), "dikey": (1088, 1920), "yatay": (1920, 1088), "duvar": (960, 2080)},
+}
+QWEN_COZUNURLUK = {"eniyi": 1024, "hd": 1440}  # referans varken boyut referansın oranından türetilir
+
+
+def qwen_mu(kalite: str, referans_var: bool) -> bool:
+    """Referans görsel varsa ya da en iyi kalite isteniyorsa Qwen, yoksa hızlı Z-Image kullanılır."""
+    return referans_var or kalite in QWEN_BOYUTLARI
+
+
 def boyut_hesapla(boyut: str, kalite: str) -> tuple[int, int]:
+    if kalite in QWEN_BOYUTLARI:
+        return QWEN_BOYUTLARI[kalite].get(boyut, QWEN_BOYUTLARI[kalite]["kare"])
     genislik, yukseklik = BOYUTLAR.get(boyut, BOYUTLAR["kare"])
     if kalite == "yuksek":
         genislik, yukseklik = int(genislik * 1.5), int(yukseklik * 1.5)
@@ -189,6 +222,84 @@ class Uretici:
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=92)
             sonuc.append({"jpeg": buf.getvalue(), "tohum": tohum + i})
+        return sonuc
+
+
+def _qwen_modelini_indir():
+    from huggingface_hub import snapshot_download
+
+    snapshot_download(QWEN_MODEL_ID, local_dir=QWEN_YOL, ignore_patterns=["assets/*"])
+
+
+@app.function(image=indirme_image, volumes={MODEL_DIR: modeller}, timeout=3600)
+def foto_modeli_indir():
+    """Qwen-Image-2.1'i (~33 GB) GPU'suz makinede indirir; zaten varsa hızlıca geçer."""
+    _qwen_modelini_indir()
+    modeller.commit()
+    print("Fotoğraf modeli hazır:", QWEN_YOL)
+
+
+@app.cls(
+    gpu="L40S",
+    image=qwen_image,
+    volumes={MODEL_DIR: modeller},
+    scaledown_window=120,
+    max_containers=1,
+    timeout=900,
+)
+class QwenUretici:
+    @modal.enter()
+    def yukle(self):
+        # Yükleme hatası konteyneri çökertmesin (çöken konteyner tekrar tekrar başlatılır).
+        import traceback
+
+        self.hata = None
+        try:
+            import torch
+            from diffusers import QwenImage21Pipeline
+
+            _qwen_modelini_indir()
+            self.pipe = QwenImage21Pipeline.from_pretrained(QWEN_YOL, torch_dtype=torch.bfloat16).to("cuda")
+            if hasattr(self.pipe.vae, "enable_tiling"):
+                self.pipe.vae.enable_tiling()
+        except Exception:
+            self.hata = traceback.format_exc()
+            print(self.hata)
+
+    def _hata_varsa(self):
+        if self.hata:
+            raise RuntimeError("Fotoğraf modeli yüklenemedi: " + self.hata.strip().splitlines()[-1])
+
+    @modal.method()
+    def isit(self) -> bool:
+        self._hata_varsa()
+        return True
+
+    @modal.method()
+    def uret(self, prompt: str, genislik: int | None, yukseklik: int | None, adet: int, tohum: int | None,
+             referanslar: list[bytes] | None = None, cozunurluk: int = 1024):
+        self._hata_varsa()
+        import torch
+        from PIL import Image
+
+        if tohum is None:
+            tohum = random.randint(0, 2**31 - 1)
+        ek = {"width": genislik, "height": yukseklik}
+        if referanslar:
+            resimler = []
+            for r in referanslar[:10]:
+                img = Image.open(io.BytesIO(r)).convert("RGB")
+                img.thumbnail((2048, 2048))
+                resimler.append(img)
+            # Boyut, son referansın oranından ve seçilen çözünürlükten türetilir (düzenlemede kadraj korunur).
+            ek = {"image": resimler, "output_resolution": cozunurluk}
+        sonuc = []
+        for i in range(adet):
+            torch.cuda.empty_cache()
+            img = self.pipe(prompt=prompt, generator=torch.Generator("cuda").manual_seed(tohum + i), **ek).images[0]
+            buf = io.BytesIO()
+            img.convert("RGB").save(buf, format="JPEG", quality=92)
+            sonuc.append({"jpeg": buf.getvalue(), "tohum": tohum + i, "genislik": img.width, "yukseklik": img.height})
         return sonuc
 
 
@@ -435,6 +546,24 @@ def arastir(tur: str, mesajlar: list[dict], hedef: str) -> dict:
 
 
 @app.local_entrypoint()
+def foto_dene():
+    """Qwen-Image-2.1'i uygulamadaki yoldan dener (yazıdan + referanslı): modal run foto.py::foto_dene"""
+    import time
+
+    Path("tani-cikti").mkdir(exist_ok=True)
+    bas = time.time()
+    g, y = QWEN_BOYUTLARI["eniyi"]["dikey"]
+    ilk = QwenUretici().uret.remote("a smiling man with a red scarf in a snowy park, realistic photo", g, y, 1, 5)
+    print(f"yazıdan: {ilk[0]['genislik']}x{ilk[0]['yukseklik']}, {time.time() - bas:.0f} sn (yükleme dahil)")
+    Path("tani-cikti/foto_yazidan.jpg").write_bytes(ilk[0]["jpeg"])
+    bas = time.time()
+    ref = QwenUretici().uret.remote("The same man from the reference, now sitting in a cozy library reading a book",
+                                    None, None, 1, 6, [ilk[0]["jpeg"]], QWEN_COZUNURLUK["eniyi"])
+    print(f"referanslı: {ref[0]['genislik']}x{ref[0]['yukseklik']}, {time.time() - bas:.0f} sn")
+    Path("tani-cikti/foto_referansli.jpg").write_bytes(ref[0]["jpeg"])
+
+
+@app.local_entrypoint()
 def video_dene():
     """Kısa, düşük çözünürlüklü bir video üretip ölçer: modal run foto.py::video_dene"""
     import time
@@ -533,17 +662,20 @@ def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None
 
     class Isit(BaseModel):
         tur: Literal["foto", "video"] = "foto"
+        kalite: str = "eniyi"
 
     class Istek(BaseModel):
         tur: Literal["foto", "video"] = "foto"
         prompt: str = Field(min_length=1, max_length=2000)
         mod: str = "serbest"
         boyut: str = "kare"
-        kalite: str = "standart"
+        kalite: Literal["hizli", "standart", "yuksek", "eniyi", "hd"] = "eniyi"
         adet: int = Field(default=1, ge=1, le=4)
         tohum: int | None = Field(default=None, ge=0, le=2**31 - 5)
         sure: Literal[5, 10] = 5
         resim: str | None = Field(default=None, max_length=12_000_000)  # base64 JPEG/PNG
+        # Fotoğraf için referans görseller (base64); varsa Qwen-Image-2.1 kullanılır.
+        referanslar: list[str] = Field(default_factory=list, max_length=10)
 
     @api.post("/api/giris")
     def giris(g: Giris):
@@ -589,7 +721,10 @@ def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None
 
     @api.post("/api/isit", dependencies=[Depends(oturum_kontrol)])
     def isit(i: Isit | None = None):
-        return {"is": baslat("isit_" + (i.tur if i else "foto"))}
+        i = i or Isit()
+        if i.tur == "foto" and qwen_mu(i.kalite, False):
+            return {"is": baslat("isit_qwen")}
+        return {"is": baslat("isit_" + i.tur)}
 
     @api.post("/api/uret", dependencies=[Depends(oturum_kontrol)])
     def uret(istek: Istek):
@@ -608,8 +743,22 @@ def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None
             kimlik = baslat("video", prompt, genislik, yukseklik, VIDEO_KARELERI[istek.sure], istek.tohum, resim)
         else:
             prompt = son_prompt(istek.prompt, istek.mod)
-            genislik, yukseklik = boyut_hesapla(istek.boyut, istek.kalite)
-            kimlik = baslat("foto", prompt, genislik, yukseklik, istek.adet, istek.tohum)
+            if sum(len(r) for r in istek.referanslar) > 40_000_000:
+                raise HTTPException(status_code=413, detail="Referans görseller çok büyük")
+            try:
+                referanslar = [base64.b64decode(r, validate=True) for r in istek.referanslar]
+            except binascii.Error:
+                raise HTTPException(status_code=400, detail="Referans görsel okunamadı")
+            if qwen_mu(istek.kalite, bool(referanslar)):
+                kalite = istek.kalite if istek.kalite in QWEN_BOYUTLARI else "eniyi"
+                genislik, yukseklik = boyut_hesapla(istek.boyut, kalite)
+                if referanslar:
+                    genislik = yukseklik = None  # referanstan türetilir
+                kimlik = baslat("qwen", prompt, genislik, yukseklik, istek.adet, istek.tohum, referanslar,
+                                QWEN_COZUNURLUK[kalite])
+            else:
+                genislik, yukseklik = boyut_hesapla(istek.boyut, istek.kalite)
+                kimlik = baslat("foto", prompt, genislik, yukseklik, istek.adet, istek.tohum)
         return {"is": kimlik, "genislik": genislik, "yukseklik": yukseklik}
 
     @api.get("/api/is/{kimlik}", dependencies=[Depends(oturum_kontrol)])
@@ -631,7 +780,8 @@ def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None
         return {
             "bitti": True,
             "gorseller": [
-                {"veri": base64.b64encode(g["jpeg"]).decode(), "tohum": g["tohum"]} for g in sonuc
+                {"veri": base64.b64encode(g["jpeg"]).decode(), "tohum": g["tohum"],
+                 "genislik": g.get("genislik"), "yukseklik": g.get("yukseklik")} for g in sonuc
             ],
         }
 
@@ -657,6 +807,8 @@ def _modal_baslat(is_turu: str, *args) -> str:
     sinif, metot = {
         "foto": (Uretici, "uret"),
         "isit_foto": (Uretici, "isit"),
+        "qwen": (QwenUretici, "uret"),
+        "isit_qwen": (QwenUretici, "isit"),
         "video": (VideoUretici, "uret"),
         "isit_video": (VideoUretici, "isit"),
         "arastir": (None, None),

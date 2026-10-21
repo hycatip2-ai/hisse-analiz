@@ -6,11 +6,12 @@ name: Foto Üret - Video denemesi
 #   islem=tani: kalite teşhisi; varyantları üretip kareleri artifact olarak yükler (~0,5-1 $)
 #   islem=tani2: rehberli tam model ile aynı teşhis (~1 $)
 #   islem=qwen: Qwen-Image-2.1 fotoğraf/referans denemesi (~0,3 $)
+#   islem=foto: uygulamadaki Qwen fotoğraf yolunu dener (~0,05 $)
 on:
   workflow_dispatch:
     inputs:
       islem:
-        description: "dene, tani, tani2 veya qwen"
+        description: "dene, tani, tani2, qwen veya foto"
         default: "dene"
 
 jobs:
@@ -64,3 +65,12 @@ jobs:
         with:
           name: qwen-tani
           path: foto-uret/araclar/tani-cikti/
+      - name: Fotoğraf denemesi
+        if: inputs.islem == 'foto'
+        working-directory: foto-uret
+        run: modal run foto.py::foto_dene
+      - uses: actions/upload-artifact@v4
+        if: inputs.islem == 'foto'
+        with:
+          name: foto-dene
+          path: foto-uret/tani-cikti/
