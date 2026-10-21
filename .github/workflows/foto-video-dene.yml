@@ -5,11 +5,12 @@ name: Foto Üret - Video denemesi
 #   islem=dene: kısa video üretip süreleri yazar (~0,3-0,6 $)
 #   islem=tani: kalite teşhisi; varyantları üretip kareleri artifact olarak yükler (~0,5-1 $)
 #   islem=tani2: rehberli tam model ile aynı teşhis (~1 $)
+#   islem=qwen: Qwen-Image-2.1 fotoğraf/referans denemesi (~0,3 $)
 on:
   workflow_dispatch:
     inputs:
       islem:
-        description: "dene, tani veya tani2"
+        description: "dene, tani, tani2 veya qwen"
         default: "dene"
 
 jobs:
@@ -26,11 +27,11 @@ jobs:
           python-version: "3.12"
       - run: pip install modal
       - name: Video denemesi
-        if: inputs.islem != 'tani' && inputs.islem != 'tani2'
+        if: inputs.islem == 'dene'
         working-directory: foto-uret
         run: modal run foto.py::video_dene
       - uses: actions/upload-artifact@v4
-        if: inputs.islem != 'tani' && inputs.islem != 'tani2'
+        if: inputs.islem == 'dene'
         with:
           name: video-dene
           path: foto-uret/tani-cikti/
@@ -53,3 +54,13 @@ jobs:
         with:
           name: video-tani
           path: foto-uret/tani-cikti/
+      - name: Qwen-Image-2.1 denemesi
+        if: inputs.islem == 'qwen'
+        working-directory: foto-uret/araclar
+        timeout-minutes: 40
+        run: modal run qwen_tani.py
+      - uses: actions/upload-artifact@v4
+        if: inputs.islem == 'qwen'
+        with:
+          name: qwen-tani
+          path: foto-uret/araclar/tani-cikti/
