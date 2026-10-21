@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d0d12">
+<meta name="description" content="Yapay zeka ile görsel üret">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icon-192.png">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="stylesheet" href="/static/style.css">
+<title>Foto Stüdyo</title>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-parilti" viewBox="0 0 24 24"><path fill="currentColor" d="M10 2l1.8 6.2L18 10l-6.2 1.8L10 18l-1.8-6.2L2 10l6.2-1.8zM19 14l.9 2.6 2.6.9-2.6.9L19 21l-.9-2.6-2.6-.9 2.6-.9z"/></symbol>
+  <symbol id="i-galeri" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></symbol>
+  <symbol id="i-cikis" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
+  <symbol id="i-indir" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol>
+  <symbol id="i-paylas" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 12v7a2 2 0 002 2h12a2 2 0 002-2v-7M16 6l-4-4-4 4M12 2v13"/></symbol>
+  <symbol id="i-tekrar" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 12a9 9 0 0115.5-6.3L21 8M21 3v5h-5M21 12a9 9 0 01-15.5 6.3L3 16M3 21v-5h5"/></symbol>
+  <symbol id="i-sil" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15"/></symbol>
+  <symbol id="i-kapat" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-yukle" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12M7 10l5 5 5-5M4 21h16"/></symbol>
+</svg>
+
+<section id="giris" class="ekran giris" hidden>
+  <form id="giris-form" class="giris-kutu">
+    <img src="/static/icon-192.png" class="logo" alt="">
+    <h1>Foto Stüdyo</h1>
+    <p class="soluk">Yapay zeka ile görsel üret</p>
+    <input id="sifre" type="password" placeholder="Şifre" autocomplete="current-password" required>
+    <button class="ana-buton" type="submit">Giriş yap</button>
+    <p id="giris-hata" class="hata" role="alert"></p>
+  </form>
+</section>
+
+<section id="uygulama" class="ekran" hidden>
+  <header class="ust">
+    <div class="marka"><img src="/static/icon-192.png" alt=""><span>Foto Stüdyo</span></div>
+    <div class="ust-sag">
+      <span id="sunucu" class="sunucu uyku"><i></i><b>Uykuda</b></span>
+      <button id="yukle" class="ikon-buton" hidden aria-label="Uygulamayı yükle"><svg><use href="#i-yukle"/></svg></button>
+      <button id="cikis" class="ikon-buton" aria-label="Çıkış yap"><svg><use href="#i-cikis"/></svg></button>
+    </div>
+  </header>
+
+  <main id="sayfa-uret" class="sayfa">
+    <div class="kart">
+      <label class="etiket" for="prompt">Ne görmek istiyorsun?</label>
+      <textarea id="prompt" rows="4" maxlength="2000" placeholder="Örn: a red vintage car on a rainy street at night"></textarea>
+      <p class="ipucu">İngilizce yazarsan daha iyi sonuç alırsın.</p>
+    </div>
+
+    <div class="etiket bosluk">Mod</div>
+    <div id="modlar" class="modlar" role="radiogroup" aria-label="Mod"></div>
+
+    <div class="etiket bosluk">Boyut</div>
+    <div class="segment" id="boyut" role="radiogroup" aria-label="Boyut">
+      <button data-v="kare" class="secili"><span class="oran kare"></span>Kare</button>
+      <button data-v="dikey"><span class="oran dikey"></span>Dikey</button>
+      <button data-v="yatay"><span class="oran yatay"></span>Yatay</button>
+      <button data-v="duvar"><span class="oran duvar"></span>Duvar</button>
+    </div>
+
+    <div class="iki-kolon">
+      <div>
+        <div class="etiket bosluk">Adet</div>
+        <div class="segment" id="adet" role="radiogroup" aria-label="Adet">
+          <button data-v="1" class="secili">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="4">4</button>
+        </div>
+      </div>
+      <div>
+        <div class="etiket bosluk">Kalite</div>
+        <div class="segment" id="kalite" role="radiogroup" aria-label="Kalite">
+          <button data-v="standart" class="secili">Standart</button><button data-v="yuksek">Yüksek</button>
+        </div>
+      </div>
+    </div>
+
+    <details class="gelismis">
+      <summary>Gelişmiş</summary>
+      <label class="etiket" for="tohum">Tohum</label>
+      <input id="tohum" type="number" inputmode="numeric" min="0" placeholder="Boş bırak = rastgele">
+      <p class="ipucu">Aynı tohum ve aynı açıklama aynı görseli verir.</p>
+    </details>
+
+    <div id="durum" class="durum" hidden></div>
+    <div id="sonuclar" class="sonuclar"></div>
+  </main>
+
+  <main id="sayfa-galeri" class="sayfa" hidden>
+    <h2 class="baslik">Galeri</h2>
+    <div id="galeri" class="galeri"></div>
+    <p id="galeri-bos" class="bos">Henüz görsel yok.<br>Ürettiğin görseller burada saklanır.</p>
+  </main>
+
+  <div class="alt">
+    <button id="uret" class="ana-buton uret-buton"><svg><use href="#i-parilti"/></svg><span>Üret</span></button>
+    <nav class="sekmeler">
+      <button data-sayfa="uret" class="secili"><svg><use href="#i-parilti"/></svg>Üret</button>
+      <button data-sayfa="galeri"><svg><use href="#i-galeri"/></svg>Galeri</button>
+    </nav>
+  </div>
+</section>
+
+<div id="goruntuleyici" class="goruntuleyici" hidden role="dialog" aria-modal="true">
+  <button id="g-kapat" class="ikon-buton kapat" aria-label="Kapat"><svg><use href="#i-kapat"/></svg></button>
+  <div class="g-resim"><img id="g-img" alt=""></div>
+  <div class="g-alt">
+    <p id="g-prompt" class="g-prompt"></p>
+    <p id="g-bilgi" class="soluk kucuk"></p>
+    <div class="g-butonlar">
+      <button id="g-kaydet"><svg><use href="#i-indir"/></svg>Kaydet</button>
+      <button id="g-paylas"><svg><use href="#i-paylas"/></svg>Paylaş</button>
+      <button id="g-tekrar"><svg><use href="#i-tekrar"/></svg>Tekrar kullan</button>
+      <button id="g-sil" class="tehlike"><svg><use href="#i-sil"/></svg>Sil</button>
+    </div>
+  </div>
+</div>
+
+<div id="bildirim" class="bildirim" hidden></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
