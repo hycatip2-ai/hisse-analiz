@@ -46,6 +46,8 @@ jobs:
         run: |
           modal secret create foto-sifre "SIFRE=$FOTO_SIFRE" --force > /dev/null
           modal secret create foto-hf "HF_TOKEN=${HF_TOKEN:-yok}" --force > /dev/null
+          # Kota ekranı Modal kullanımını bu anahtarla okur.
+          modal secret create foto-kota "KOTA_TOKEN_ID=$MODAL_TOKEN_ID" "KOTA_TOKEN_SECRET=$MODAL_TOKEN_SECRET" --force > /dev/null
 
       - name: Deploy
         if: steps.kontrol.outputs.hazir == 'true'

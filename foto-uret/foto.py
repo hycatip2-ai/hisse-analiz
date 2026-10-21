@@ -71,6 +71,9 @@ modeller = modal.Volume.from_name("foto-modeller", create_if_missing=True)
 video_modeller = modal.Volume.from_name("foto-video-modeller", create_if_missing=True)
 sifre_secret = modal.Secret.from_name("foto-sifre")
 hf_secret = modal.Secret.from_name("foto-hf")  # HF_TOKEN: LTX-2.5 erişimi için
+# KOTA_TOKEN_ID / KOTA_TOKEN_SECRET: Kota ekranının Modal kullanım bilgisini okuması için
+kota_secret = modal.Secret.from_name("foto-kota")
+AYLIK_KREDI = 30  # Modal Starter planının aylık ücretsiz kredisi ($)
 
 # Modlar: kullanıcının yazdığı açıklamanın sonuna eklenen stil tarifleri.
 MODLAR = [
@@ -208,15 +211,28 @@ def video_modeli_indir():
 class VideoUretici:
     @modal.enter()
     def yukle(self):
+        # Yükleme hatası olursa konteyner çökmesin: Modal çökeni tekrar tekrar başlatır,
+        # her seferinde ~115 GB yükleyip GPU süresi yakar. Hata saklanır, istek hemen döner.
+        import traceback
+
+        self.hata = None
+        try:
+            self._yukle()
+        except Exception:
+            self.hata = traceback.format_exc()
+            print(self.hata)
+
+    def _yukle(self):
         import torch
         from diffusers import LTX2ImageToVideoPipeline, LTX2LatentUpsamplePipeline, LTX2Pipeline
         from diffusers.pipelines.ltx2.latent_upsampler import LTX2LatentUpsamplerModel
 
         # Normalde video_modeli_indir zaten indirmiştir; eksik dosya varsa tamamlar.
         _video_modelini_indir()
-        # prompt_enhancer indirilmedi; None verilince yüklenmeye çalışılmaz.
+        # prompt_enhancer indirilmedi; processor yalnızca prompt geliştirmede kullanılır ve
+        # Gemma4Processor içe aktarılamıyor. None verilince ikisi de yüklenmez.
         self.yazidan = LTX2Pipeline.from_pretrained(
-            VIDEO_YOL, torch_dtype=torch.bfloat16, prompt_enhancer=None
+            VIDEO_YOL, torch_dtype=torch.bfloat16, prompt_enhancer=None, processor=None
         ).to("cuda")
         self.yazidan.vae.enable_tiling()
         self.fotodan = LTX2ImageToVideoPipeline(**self.yazidan.components)
@@ -225,13 +241,20 @@ class VideoUretici:
         ).to("cuda")
         self.buyut = LTX2LatentUpsamplePipeline(vae=self.yazidan.vae, latent_upsampler=buyutucu)
 
+    def _hata_varsa(self):
+        if self.hata:
+            son = self.hata.strip().splitlines()[-1]
+            raise RuntimeError(f"Video modeli yüklenemedi: {son}")
+
     @modal.method()
     def isit(self) -> bool:
+        self._hata_varsa()
         return True
 
     @modal.method()
     def uret(self, prompt: str, genislik: int, yukseklik: int, kare: int, tohum: int | None,
              resim: bytes | None):
+        self._hata_varsa()
         import tempfile
 
         import torch
@@ -294,7 +317,46 @@ class VideoUretici:
         return {"mp4": mp4, "tohum": tohum}
 
 
-def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str):
+@app.local_entrypoint()
+def video_dene():
+    """Kısa, düşük çözünürlüklü bir video üretip ölçer: modal run foto.py::video_dene"""
+    import time
+
+    bas = time.time()
+    VideoUretici().isit.remote()
+    print(f"Model yüklendi: {time.time() - bas:.0f} sn")
+    for ad, (g, y), kare in [("küçük", (768, 448), 49), ("tam boy 5 sn", VIDEO_BOYUTLARI["dikey"], VIDEO_KARELERI[5])]:
+        bas = time.time()
+        sonuc = VideoUretici().uret.remote("a red fox walking through a snowy forest, cinematic", g, y, kare, 1, None)
+        print(f"{ad}: {g}x{y}, {kare} kare -> {len(sonuc['mp4']) / 1e6:.1f} MB, {time.time() - bas:.0f} sn")
+
+
+def kota_bilgisi() -> dict:
+    """Bu ayın Modal kullanımını özetler (Kota ekranı için)."""
+    from datetime import datetime, timezone
+
+    client = modal.Client.from_credentials(os.environ["KOTA_TOKEN_ID"], os.environ["KOTA_TOKEN_SECRET"])
+    calisma = modal.Workspace.from_context(client=client)
+    ozet = calisma.billing.summary()
+    ay_basi = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    kaynaklar: dict[str, float] = {}
+    gunluk: dict[str, float] = {}
+    for satir in calisma.billing.report(start=ay_basi, resolution="d"):
+        gun = satir.interval_start.date().isoformat()
+        gunluk[gun] = gunluk.get(gun, 0.0) + float(satir.cost)
+        for kaynak, tutar in satir.cost_by_resource.items():
+            kaynaklar[kaynak] = kaynaklar.get(kaynak, 0.0) + float(tutar)
+    return {
+        "kredi": AYLIK_KREDI,
+        "kullanilan": float(ozet.metered_cost),
+        "odenecek": float(ozet.billed_cost),
+        "kaynaklar": kaynaklar,
+        "gunluk": gunluk,
+        "donem_bitis": ozet.end.isoformat() if ozet.end else None,
+    }
+
+
+def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None):
     """Web uygulamasını kurar. Yerel testte sahte fonksiyonlar verilebilir.
 
     GPU işleri arka planda başlatılır ve iş kimliği hemen döner; telefon
@@ -366,6 +428,15 @@ def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str):
     def modlar():
         return [{k: m[k] for k in ("id", "ad", "simge")} for m in MODLAR]
 
+    @api.get("/api/kota", dependencies=[Depends(oturum_kontrol)])
+    def kota():
+        if kota_al is None:
+            raise HTTPException(status_code=503, detail="Kota bilgisi ayarlanmamış")
+        try:
+            return kota_al()
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Kota okunamadı: {type(e).__name__}: {e}")
+
     @api.post("/api/isit", dependencies=[Depends(oturum_kontrol)])
     def isit(i: Isit | None = None):
         return {"is": baslat("isit_" + (i.tur if i else "foto"))}
@@ -436,7 +507,7 @@ def _modal_baslat(is_turu: str, *args) -> str:
     return getattr(sinif(), metot).spawn(*args).object_id
 
 
-@app.function(image=web_image, secrets=[sifre_secret], timeout=900)
+@app.function(image=web_image, secrets=[sifre_secret, kota_secret], timeout=900)
 @modal.concurrent(max_inputs=20)
 @modal.asgi_app(label="foto-studyo")
 def web():
@@ -445,4 +516,5 @@ def web():
         baslat=_modal_baslat,
         sonuc_al=lambda kimlik: modal.FunctionCall.from_id(kimlik).get(timeout=0),
         statik_dir=STATIK_DIR,
+        kota_al=kota_bilgisi,
     )
