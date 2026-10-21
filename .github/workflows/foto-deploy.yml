@@ -2,6 +2,7 @@ name: Foto Üret - Modal'a yükle
 
 # foto-uret/ klasörünü Modal'a deploy eder; bilgisayar gerekmez.
 # Gerekli GitHub secret'ları: MODAL_TOKEN_ID, MODAL_TOKEN_SECRET, FOTO_SIFRE
+# Video için ayrıca: HF_TOKEN (LTX-2.5 erişimi kabul edilmiş Hugging Face hesabının token'ı)
 on:
   push:
     paths:
@@ -16,6 +17,7 @@ jobs:
       MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
       MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
       FOTO_SIFRE: ${{ secrets.FOTO_SIFRE }}
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
     steps:
       - name: Secret'lar tanımlı mı?
         id: kontrol
@@ -41,15 +43,22 @@ jobs:
 
       - name: Şifreyi Modal'a kaydet
         if: steps.kontrol.outputs.hazir == 'true'
-        run: modal secret create foto-sifre "SIFRE=$FOTO_SIFRE" --force > /dev/null
+        run: |
+          modal secret create foto-sifre "SIFRE=$FOTO_SIFRE" --force > /dev/null
+          modal secret create foto-hf "HF_TOKEN=${HF_TOKEN:-yok}" --force > /dev/null
 
       - name: Deploy
         if: steps.kontrol.outputs.hazir == 'true'
         working-directory: foto-uret
         run: modal deploy foto.py
 
-      # Video modelini (~100 GB) GPU'suz ucuz bir makinede indirir; zaten varsa hızlıca geçer.
+      # Video modelini (~115 GB) GPU'suz ucuz bir makinede indirir; zaten varsa hızlıca geçer.
       - name: Video modelini indir
         if: steps.kontrol.outputs.hazir == 'true'
         working-directory: foto-uret
-        run: modal run foto.py::video_modeli_indir
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "::warning::HF_TOKEN secret'ı eklenmemiş; video modeli indirilemedi. KURULUM.md'deki Hugging Face adımlarına bakın."
+            exit 0
+          fi
+          modal run foto.py::video_modeli_indir

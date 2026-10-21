@@ -1,7 +1,7 @@
 # Foto Stüdyo: Kurulum
 
 Telefona kurulabilen yapay zeka fotoğraf ve video üretme uygulaması (PWA). Modal (bulut GPU)
-üzerinde fotoğraf için **Z-Image-Turbo** (Apache 2.0), video için **LTX-2.3** (sesli video;
+üzerinde fotoğraf için **Z-Image-Turbo** (Apache 2.0), video için **LTX-2.5** (sesli video;
 yıllık geliri 10 milyon $ altı için ücretsiz LTX lisansı) çalışır. GPU süresi Modal'ın
 aylık ücretsiz kredisinden düşer.
 
@@ -70,11 +70,26 @@ Kodda değişiklik yapılıp `foto-uret/` klasörüne push edildiğinde deploy k
 
 - Üret ekranında **Video**'yu seç. Yazıdan video üretebilir ya da bir başlangıç fotoğrafı
   ekleyebilirsin (telefondan seç veya Galeri'de bir fotoğrafı açıp **Canlandır**).
-- 5 veya 10 saniyelik, sesli, 24 fps video. Boyutlar: kare 640×640, dikey 512×768, yatay 768×512.
-- Video ayrı ve daha güçlü bir GPU'da (H200) çalışır. Bir video genelde 2-5 dakika sürer;
-  GPU uykudaysa model yüklenirken birkaç dakika daha eklenir.
-- Video modeli (~100 GB) deploy sırasında GPU'suz ucuz bir makinede bir kez indirilir
+- 5 veya 10 saniyelik, sesli, 24 fps video. Boyutlar: kare 1280×1280, dikey 1088×1920,
+  yatay 1920×1088.
+- İki aşamalı üretim: önce yarım çözünürlükte hareket ve ses üretilir, sonra 2 kat büyütülüp
+  tam çözünürlükte ayrıntılar iyileştirilir (LTX'in önerdiği yöntem).
+- Video ayrı ve daha güçlü bir GPU'da (H200) çalışır. GPU uykudaysa model yüklenirken
+  birkaç dakika eklenir.
+- Video modeli (~115 GB) deploy sırasında GPU'suz ucuz bir makinede bir kez indirilir
   (GitHub Actions'taki "Video modelini indir" adımı; ilk seferde 10-30 dk sürebilir).
+
+### Video için Hugging Face erişimi (bir kerelik)
+
+LTX-2.5 ücretsizdir ama indirmek için lisansı kabul etmiş bir Hugging Face hesabı gerekir.
+
+1. https://huggingface.co adresinde ücretsiz hesap aç ve e-postanı doğrula.
+2. https://huggingface.co/Lightricks/LTX-2.5-Diffusers sayfasında istenen bilgileri doldurup
+   erişim koşullarını kabul et (onay otomatik gelir).
+3. **Settings → Access Tokens → Create new token** → tür **Read** → oluştur ve kopyala (`hf_...`).
+4. GitHub'da bu repoda **Settings → Secrets and variables → Actions** altına
+   `HF_TOKEN` adıyla ekle.
+5. Actions sekmesinden "Foto Üret - Modal'a yükle" işini yeniden çalıştır.
 
 ## Maliyet
 

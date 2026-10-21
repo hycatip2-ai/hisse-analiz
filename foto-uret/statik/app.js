@@ -101,7 +101,7 @@ async function resimBase64(blob, enBuyuk = 1280) {
 
 const ORANLAR = {
   foto: { kare: "1 / 1", dikey: "4 / 7", yatay: "7 / 4", duvar: "23 / 50" },
-  video: { kare: "1 / 1", dikey: "2 / 3", yatay: "3 / 2" },
+  video: { kare: "1 / 1", dikey: "17 / 30", yatay: "30 / 17" },
 };
 const BOYUT_ADI = { kare: "Kare", dikey: "Dikey", yatay: "Yatay", duvar: "Duvar kâğıdı" };
 const IPUCU = {

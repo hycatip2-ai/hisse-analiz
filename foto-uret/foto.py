@@ -1,9 +1,10 @@
 """Foto Stüdyo: telefondan görsel ve video üretme uygulaması (Modal).
 
 - Uretici: GPU (L40S) üzerinde Z-Image-Turbo ile fotoğraf üretir.
-- VideoUretici: GPU (H200) üzerinde LTX-2.3 ile sesli video üretir
-  (yazıdan veya bir fotoğraftan).
-- video_modeli_indir: Video modelini (~100 GB) ucuz CPU'da bir kez indirir.
+- VideoUretici: GPU (H200) üzerinde LTX-2.5 ile sesli video üretir
+  (yazıdan veya bir fotoğraftan), iki aşamada: yarım çözünürlükte üretip
+  2 kat büyüterek tam çözünürlükte (1920×1088'e kadar) iyileştirir.
+- video_modeli_indir: Video modelini (~115 GB) ucuz CPU'da bir kez indirir.
 - web: Telefon uygulamasını (PWA) ve API'yi sunar; ucuz CPU üzerinde çalışır,
   GPU'lar yalnızca üretim sırasında açılır.
 
@@ -20,9 +21,18 @@ import modal
 
 MODEL_ID = "Tongyi-MAI/Z-Image-Turbo"
 MODEL_DIR = "/modeller"
-VIDEO_MODEL_ID = "diffusers/LTX-2.3-Diffusers"
+VIDEO_MODEL_ID = "Lightricks/LTX-2.5-Diffusers"  # erişim için HF hesabı + token gerekir
 VIDEO_DIR = "/video-modeller"
-VIDEO_YOL = f"{VIDEO_DIR}/ltx-2.3"
+VIDEO_YOL = f"{VIDEO_DIR}/ltx-2.5"
+ESKI_VIDEO_YOL = f"{VIDEO_DIR}/ltx-2.3"
+# Kullanmadığımız büyük parçalar indirilmez (tam/SFT transformer, LoRA, prompt geliştirici...).
+VIDEO_INDIRME_HARIC = [
+    "transformer_full/*",
+    "prompt_enhancer/*",
+    "diffusion_decoder/*",
+    "temporal_latent_upsampler/*",
+    "ltx-2.5-*.safetensors",  # kökteki 2. aşama LoRA'sı (distilled modelde gereksiz)
+]
 STATIK_DIR = "/statik"
 OTURUM_SURESI = 90 * 24 * 3600  # 90 gün
 VIDEO_FPS = 24
@@ -60,6 +70,7 @@ web_image = (
 modeller = modal.Volume.from_name("foto-modeller", create_if_missing=True)
 video_modeller = modal.Volume.from_name("foto-video-modeller", create_if_missing=True)
 sifre_secret = modal.Secret.from_name("foto-sifre")
+hf_secret = modal.Secret.from_name("foto-hf")  # HF_TOKEN: LTX-2.5 erişimi için
 
 # Modlar: kullanıcının yazdığı açıklamanın sonuna eklenen stil tarifleri.
 MODLAR = [
@@ -89,11 +100,11 @@ BOYUTLAR = {
     "yatay": (1344, 768),
     "duvar": (736, 1600),
 }
-# Video boyutları 32'nin katı olmalı.
+# Video son boyutları; iki aşamalı üretim için 64'ün katı olmalı (1. aşama yarısı).
 VIDEO_BOYUTLARI = {
-    "kare": (640, 640),
-    "dikey": (512, 768),
-    "yatay": (768, 512),
+    "kare": (1280, 1280),
+    "dikey": (1088, 1920),
+    "yatay": (1920, 1088),
 }
 # Kare sayısı 8k+1 olmalı: 121 kare ≈ 5 sn, 241 kare ≈ 10 sn (24 fps).
 VIDEO_KARELERI = {5: 121, 10: 241}
@@ -161,12 +172,26 @@ class Uretici:
         return sonuc
 
 
-@app.function(image=indirme_image, volumes={VIDEO_DIR: video_modeller}, timeout=3 * 3600)
-def video_modeli_indir():
-    """Video modelini GPU'suz (ucuz) bir makinede indirir; zaten varsa hızlıca geçer."""
+def _video_modelini_indir():
     from huggingface_hub import snapshot_download
 
-    snapshot_download(VIDEO_MODEL_ID, local_dir=VIDEO_YOL)
+    snapshot_download(
+        VIDEO_MODEL_ID,
+        local_dir=VIDEO_YOL,
+        ignore_patterns=VIDEO_INDIRME_HARIC,
+        token=os.environ.get("HF_TOKEN", "").replace("yok", "") or None,
+    )
+
+
+@app.function(image=indirme_image, volumes={VIDEO_DIR: video_modeller}, secrets=[hf_secret],
+              timeout=3 * 3600)
+def video_modeli_indir():
+    """Video modelini GPU'suz (ucuz) bir makinede indirir; zaten varsa hızlıca geçer."""
+    import shutil
+
+    _video_modelini_indir()
+    # Önceki LTX-2.3 dosyaları artık kullanılmıyor.
+    shutil.rmtree(ESKI_VIDEO_YOL, ignore_errors=True)
     video_modeller.commit()
     print("Video modeli hazır:", VIDEO_YOL)
 
@@ -175,6 +200,7 @@ def video_modeli_indir():
     gpu="H200",
     image=video_gpu_image,
     volumes={VIDEO_DIR: video_modeller},
+    secrets=[hf_secret],
     scaledown_window=120,
     max_containers=1,
     timeout=1800,
@@ -183,14 +209,21 @@ class VideoUretici:
     @modal.enter()
     def yukle(self):
         import torch
-        from diffusers import LTX2ImageToVideoPipeline, LTX2Pipeline
-        from huggingface_hub import snapshot_download
+        from diffusers import LTX2ImageToVideoPipeline, LTX2LatentUpsamplePipeline, LTX2Pipeline
+        from diffusers.pipelines.ltx2.latent_upsampler import LTX2LatentUpsamplerModel
 
         # Normalde video_modeli_indir zaten indirmiştir; eksik dosya varsa tamamlar.
-        snapshot_download(VIDEO_MODEL_ID, local_dir=VIDEO_YOL)
-        self.yazidan = LTX2Pipeline.from_pretrained(VIDEO_YOL, torch_dtype=torch.bfloat16).to("cuda")
+        _video_modelini_indir()
+        # prompt_enhancer indirilmedi; None verilince yüklenmeye çalışılmaz.
+        self.yazidan = LTX2Pipeline.from_pretrained(
+            VIDEO_YOL, torch_dtype=torch.bfloat16, prompt_enhancer=None
+        ).to("cuda")
         self.yazidan.vae.enable_tiling()
         self.fotodan = LTX2ImageToVideoPipeline(**self.yazidan.components)
+        buyutucu = LTX2LatentUpsamplerModel.from_pretrained(
+            VIDEO_YOL, subfolder="latent_upsampler", torch_dtype=torch.bfloat16
+        ).to("cuda")
+        self.buyut = LTX2LatentUpsamplePipeline(vae=self.yazidan.vae, latent_upsampler=buyutucu)
 
     @modal.method()
     def isit(self) -> bool:
@@ -202,30 +235,52 @@ class VideoUretici:
         import tempfile
 
         import torch
-        from diffusers.pipelines.ltx2.utils import DEFAULT_NEGATIVE_PROMPT
+        from diffusers.pipelines.ltx2.utils import DISTILLED_SIGMA_VALUES, STAGE_2_DISTILLED_SIGMA_VALUES
         from diffusers.utils import encode_video
         from PIL import Image, ImageOps
 
         if tohum is None:
             tohum = random.randint(0, 2**31 - 1)
-        ortak = dict(
-            prompt=prompt,
-            negative_prompt=DEFAULT_NEGATIVE_PROMPT,
-            width=genislik,
-            height=yukseklik,
-            num_frames=kare,
-            frame_rate=float(VIDEO_FPS),
-            num_inference_steps=30,
-            generator=torch.Generator("cuda").manual_seed(tohum),
-            output_type="np",
-            return_dict=False,
-        )
+        # Tek generator iki aşamada da kullanılır; 2. aşama gürültüyü tekrarlamaz, sürdürür.
+        generator = torch.Generator("cuda").manual_seed(tohum)
+        pipe, ek = self.yazidan, {}
         if resim:
             img = Image.open(io.BytesIO(resim)).convert("RGB")
-            img = ImageOps.fit(img, (genislik, yukseklik), Image.LANCZOS)
-            video, ses = self.fotodan(image=img, **ortak)
-        else:
-            video, ses = self.yazidan(**ortak)
+            pipe, ek = self.fotodan, {"image": ImageOps.fit(img, (genislik, yukseklik), Image.LANCZOS)}
+        ortak = dict(
+            prompt=prompt,
+            num_frames=kare,
+            frame_rate=float(VIDEO_FPS),
+            guidance_scale=1.0,  # distilled model rehbersiz çalışır
+            audio_guidance_scale=1.0,
+            generator=generator,
+            return_dict=False,
+            **ek,
+        )
+
+        # 1. aşama: yarım çözünürlükte hareket ve ses (8 adım).
+        video_latent, ses_latent = pipe(
+            width=genislik // 2,
+            height=yukseklik // 2,
+            sigmas=DISTILLED_SIGMA_VALUES,
+            output_type="latent",
+            **ortak,
+        )
+        # Gizli uzayda 2 kat büyüt.
+        buyuk_latent = self.buyut(
+            latents=video_latent, latents_normalized=False, output_type="latent", return_dict=False
+        )[0]
+        # 2. aşama: tam çözünürlükte ayrıntıları iyileştir (3 adım).
+        video, ses = pipe(
+            latents=buyuk_latent,
+            audio_latents=ses_latent,
+            width=genislik,
+            height=yukseklik,
+            sigmas=STAGE_2_DISTILLED_SIGMA_VALUES,
+            noise_scale=STAGE_2_DISTILLED_SIGMA_VALUES[0],
+            output_type="np",
+            **ortak,
+        )
 
         with tempfile.NamedTemporaryFile(suffix=".mp4") as f:
             encode_video(
