@@ -95,6 +95,26 @@ LTX-2.5 ücretsizdir ama indirmek için lisansı kabul etmiş bir Hugging Face h
    `HF_TOKEN` adıyla ekle.
 5. Actions sekmesinden "Foto Üret - Modal'a yükle" işini yeniden çalıştır.
 
+## Araştırma asistanı
+
+**Araştır** sekmesinde üç mod var:
+- **Soru:** hızlı cevap; gerekirse internette arar.
+- **Derin araştırma:** konuyu birçok kaynaktan araştırıp kaynaklı rapor yazar (1-4 dk).
+- **Prompt:** Türkçe fikrini fotoğraf/video için İngilizce prompta çevirir; **Üret'e gönder** ile
+  doğrudan Üret ekranına yerleştirir.
+
+Ücretsiz çalışır: dil modeli OpenRouter'ın ücretsiz modelleri (varsayılan MiniMax-M3.1-Flash;
+yedekleri `arastirma.py` içindeki `MODELLER` listesinde), internet araması Tavily'nin ücretsiz
+planı. OpenRouter ücretsiz modellerde günde 50 istek sınırı uygular (bir derin araştırma 3-9
+istek kullanır); sayaç Araştır ekranının üstünde görünür. Yazdıkların bu servislere gider;
+kişisel/gizli bilgi yazma.
+
+Kurulum (bir kerelik, kredi kartı gerekmez):
+1. https://openrouter.ai adresinde hesap aç → **Keys → Create Key** → anahtarı kopyala (`sk-or-...`).
+2. https://tavily.com adresinde hesap aç → panelde API anahtarını kopyala (`tvly-...`).
+3. GitHub'da **Settings → Secrets and variables → Actions** altına `OPENROUTER_API_KEY` ve
+   `TAVILY_API_KEY` adlarıyla ekle, sonra "Foto Üret - Modal'a yükle" işini yeniden çalıştır.
+
 ## Maliyet
 
 - 2 dakika kullanılmazsa GPU kendiliğinden kapanır; kapalıyken ücret yok.

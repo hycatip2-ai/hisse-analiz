@@ -6,7 +6,9 @@
   1. aşamada tam (SFT) model rehberlikle (CFG + STG + negatif liste) yarım
   çözünürlükte üretir, 2. aşamada 2 kat büyütülüp distilled LoRA ile tam
   çözünürlükte (1920×1088'e kadar) iyileştirilir.
-- video_modeli_indir: Video modelini (~115 GB) ucuz CPU'da bir kez indirir.
+- video_modeli_indir: Video modelini (~110 GB) ucuz CPU'da bir kez indirir.
+- arastir: Araştırma asistanı (arastirma.py); ücretsiz OpenRouter modeli + Tavily araması,
+  GPU'suz çalışır.
 - web: Telefon uygulamasını (PWA) ve API'yi sunar; ucuz CPU üzerinde çalışır,
   GPU'lar yalnızca üretim sırasında açılır.
 
@@ -68,6 +70,12 @@ web_image = (
     modal.Image.debian_slim(python_version="3.12")
     .pip_install("fastapi[standard]")
     .add_local_dir(Path(__file__).parent / "statik", STATIK_DIR)
+    .add_local_python_source("arastirma")
+)
+arastirma_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .pip_install("httpx")
+    .add_local_python_source("arastirma")
 )
 
 # Model dosyaları bir kez indirilip burada saklanır;
@@ -79,6 +87,10 @@ hf_secret = modal.Secret.from_name("foto-hf")  # HF_TOKEN: LTX-2.5 erişimi içi
 # KOTA_TOKEN_ID / KOTA_TOKEN_SECRET: Kota ekranının Modal kullanım bilgisini okuması için
 kota_secret = modal.Secret.from_name("foto-kota")
 AYLIK_KREDI = 30  # Modal Starter planının aylık ücretsiz kredisi ($)
+# OPENROUTER_API_KEY / TAVILY_API_KEY: araştırma asistanı için
+arastirma_secret = modal.Secret.from_name("foto-arastirma")
+# Araştırma ilerlemesi (iş kimliği -> son adımlar) ve günlük istek sayacı
+arastirma_durum = modal.Dict.from_name("foto-arastirma-durum", create_if_missing=True)
 
 # Modlar: kullanıcının yazdığı açıklamanın sonuna eklenen stil tarifleri.
 MODLAR = [
@@ -388,6 +400,40 @@ class VideoUretici:
         return {"mp4": mp4, "tohum": tohum, "gelismis_prompt": gelismis}
 
 
+def _sayac_anahtari() -> str:
+    """Günlük ücretsiz istek sayacının anahtarı (OpenRouter günü UTC'ye göre sayar)."""
+    from datetime import datetime, timezone
+
+    return "sayac:" + datetime.now(timezone.utc).date().isoformat()
+
+
+@app.function(image=arastirma_image, secrets=[arastirma_secret], timeout=900)
+def arastir(tur: str, mesajlar: list[dict], hedef: str) -> dict:
+    """Araştırma asistanını çalıştırır; ilerlemeyi telefon görebilsin diye Dict'e yazar."""
+    import arastirma
+
+    kimlik = modal.current_function_call_id()
+    gun = _sayac_anahtari()
+    adimlar: list[str] = []
+
+    def ilerleme(metin):
+        adimlar.append(metin)
+        arastirma_durum[kimlik] = adimlar[-8:]
+
+    def sayac():
+        arastirma_durum[gun] = arastirma_durum.get(gun, 0) + 1
+
+    try:
+        sonuc = arastirma.yurut(tur, mesajlar, hedef, arastirma.openrouter_llm(sayac),
+                                arastirma.tavily_ara(), ilerleme)
+    except arastirma.KullaniciHatasi as e:
+        sonuc = {"tur": tur, "hata": str(e)}
+    finally:
+        arastirma_durum.pop(kimlik, None)
+    sonuc["bugun_istek"] = arastirma_durum.get(gun, 0)
+    return sonuc
+
+
 @app.local_entrypoint()
 def video_dene():
     """Kısa, düşük çözünürlüklü bir video üretip ölçer: modal run foto.py::video_dene"""
@@ -438,7 +484,8 @@ def kota_bilgisi() -> dict:
     }
 
 
-def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None):
+def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None,
+                     ilerleme_al=None, istek_sayaci=None):
     """Web uygulamasını kurar. Yerel testte sahte fonksiyonlar verilebilir.
 
     GPU işleri arka planda başlatılır ve iş kimliği hemen döner; telefon
@@ -510,6 +557,27 @@ def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None
     def modlar():
         return [{k: m[k] for k in ("id", "ad", "simge")} for m in MODLAR]
 
+    class Mesaj(BaseModel):
+        rol: Literal["kullanici", "asistan"]
+        metin: str = Field(min_length=1, max_length=30000)
+
+    class Arastirma(BaseModel):
+        tur: Literal["soru", "arastirma", "prompt"] = "soru"
+        mesajlar: list[Mesaj] = Field(min_length=1, max_length=40)
+        hedef: Literal["foto", "video"] = "foto"
+
+    @api.post("/api/arastir", dependencies=[Depends(oturum_kontrol)])
+    def arastir_baslat(a: Arastirma):
+        if a.mesajlar[-1].rol != "kullanici":
+            raise HTTPException(status_code=400, detail="Son mesaj kullanıcının olmalı")
+        return {"is": baslat("arastir", a.tur, [m.model_dump() for m in a.mesajlar], a.hedef)}
+
+    @api.get("/api/arastirma-sayac", dependencies=[Depends(oturum_kontrol)])
+    def arastirma_sayac():
+        import arastirma
+
+        return {"bugun": istek_sayaci() if istek_sayaci else 0, "limit": arastirma.GUNLUK_UCRETSIZ_ISTEK}
+
     @api.get("/api/kota", dependencies=[Depends(oturum_kontrol)])
     def kota():
         if kota_al is None:
@@ -549,9 +617,12 @@ def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None
         try:
             sonuc = sonuc_al(kimlik)
         except TimeoutError:
-            return {"bitti": False}
+            adimlar = ilerleme_al(kimlik) if ilerleme_al else None
+            return {"bitti": False, "ilerleme": adimlar or []}
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Üretim başarısız: {type(e).__name__}: {e}")
+        if isinstance(sonuc, dict) and "tur" in sonuc:  # araştırma
+            return {"bitti": True, **sonuc}
         if isinstance(sonuc, dict):  # video
             return {"bitti": True, "video": base64.b64encode(sonuc["mp4"]).decode(), "tohum": sonuc["tohum"],
                     "gelismis_prompt": sonuc.get("gelismis_prompt")}
@@ -588,7 +659,10 @@ def _modal_baslat(is_turu: str, *args) -> str:
         "isit_foto": (Uretici, "isit"),
         "video": (VideoUretici, "uret"),
         "isit_video": (VideoUretici, "isit"),
+        "arastir": (None, None),
     }[is_turu]
+    if is_turu == "arastir":
+        return arastir.spawn(*args).object_id
     return getattr(sinif(), metot).spawn(*args).object_id
 
 
@@ -602,4 +676,6 @@ def web():
         sonuc_al=lambda kimlik: modal.FunctionCall.from_id(kimlik).get(timeout=0),
         statik_dir=STATIK_DIR,
         kota_al=kota_bilgisi,
+        ilerleme_al=lambda kimlik: arastirma_durum.get(kimlik),
+        istek_sayaci=lambda: arastirma_durum.get(_sayac_anahtari(), 0),
     )

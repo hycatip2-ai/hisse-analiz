@@ -8,7 +8,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/static/icon-192.png">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-<link rel="stylesheet" href="/static/style.css?v=8">
+<link rel="stylesheet" href="/static/style.css?v=10">
 <title>Foto Stüdyo</title>
 </head>
 <body>
@@ -25,6 +25,10 @@
   <symbol id="i-foto" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="i-bilgi" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 11v6M12 7.5v.5"/></symbol>
   <symbol id="i-kota" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+  <symbol id="i-arastir" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M15.5 15.5L21 21"/></symbol>
+  <symbol id="i-gonder" viewBox="0 0 24 24"><path fill="currentColor" d="M3 20.5l18-8.5L3 3.5l2.5 8.5zM5.5 12H13"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M5.5 12H13"/></symbol>
+  <symbol id="i-yeni" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-kopyala" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M9 9h11v11H9zM5 15H4V4h11v1"/></symbol>
   <symbol id="i-yukle" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12M7 10l5 5 5-5M4 21h16"/></symbol>
 </svg>
 
@@ -126,6 +130,30 @@
     <p id="galeri-bos" class="bos">Henüz bir şey yok.<br>Ürettiğin fotoğraf ve videolar burada saklanır.</p>
   </main>
 
+  <main id="sayfa-arastir" class="sayfa arastir-sayfa" hidden>
+    <div class="arastir-ust">
+      <div class="segment" id="ar-tur" role="radiogroup" aria-label="Tür">
+        <button data-v="soru" class="secili">Soru</button>
+        <button data-v="arastirma">Derin araştırma</button>
+        <button data-v="prompt">Prompt</button>
+      </div>
+      <div class="ar-arac">
+        <div class="segment kucuk-segment" id="ar-hedef" role="radiogroup" aria-label="Prompt hedefi" hidden>
+          <button data-v="foto" class="secili">Fotoğraf</button><button data-v="video">Video</button>
+        </div>
+        <span id="ar-sayac" class="soluk kucuk"></span>
+        <button id="ar-yeni" class="ikon-buton" aria-label="Yeni sohbet"><svg><use href="#i-yeni"/></svg></button>
+      </div>
+    </div>
+    <div id="ar-bos" class="ar-bos">
+      <p><b>Soru:</b> hızlı cevap, gerekirse internette arar.</p>
+      <p><b>Derin araştırma:</b> konuyu birçok kaynaktan araştırıp kaynaklı rapor yazar (1-4 dk).</p>
+      <p><b>Prompt:</b> Türkçe fikrini fotoğraf/video için İngilizce prompta çevirir.</p>
+      <p class="soluk kucuk">Ücretsiz modeller kullanılır; günlük istek sınırı vardır. Kişisel/gizli bilgi yazma.</p>
+    </div>
+    <div id="ar-mesajlar" class="ar-mesajlar"></div>
+  </main>
+
   <main id="sayfa-kota" class="sayfa" hidden>
     <h2 class="baslik">Kota</h2>
     <div id="kota-icerik" hidden>
@@ -150,9 +178,14 @@
   </main>
 
   <div class="alt">
+    <div id="ar-yazi" class="ar-yazi" hidden>
+      <textarea id="ar-girdi" rows="1" maxlength="20000" placeholder="Bir soru sor…"></textarea>
+      <button id="ar-gonder" class="ana-buton ar-gonder" aria-label="Gönder"><svg><use href="#i-gonder"/></svg></button>
+    </div>
     <button id="uret" class="ana-buton uret-buton"><svg><use href="#i-parilti"/></svg><span>Üret</span></button>
     <nav class="sekmeler">
       <button data-sayfa="uret" class="secili"><svg><use href="#i-parilti"/></svg>Üret</button>
+      <button data-sayfa="arastir"><svg><use href="#i-arastir"/></svg>Araştır</button>
       <button data-sayfa="galeri"><svg><use href="#i-galeri"/></svg>Galeri</button>
       <button data-sayfa="kota"><svg><use href="#i-kota"/></svg>Kota</button>
     </nav>
@@ -187,6 +220,6 @@
 
 <div id="bildirim" class="bildirim" hidden></div>
 
-<script src="/static/app.js?v=8"></script>
+<script src="/static/app.js?v=10"></script>
 </body>
 </html>

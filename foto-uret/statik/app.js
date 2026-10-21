@@ -69,11 +69,12 @@ async function api(yol, govde) {
 }
 
 // GPU işi arka planda çalışır; bitene kadar birkaç saniyede bir sorulur.
-async function isBekle(kimlik, sinirDk = 10) {
+async function isBekle(kimlik, sinirDk = 10, ilerlemeFn = null) {
   const bas = Date.now();
   while (Date.now() - bas < sinirDk * 60 * 1000) {
     const d = await api("is/" + encodeURIComponent(kimlik));
     if (d.bitti) return d;
+    if (ilerlemeFn && d.ilerleme) ilerlemeFn(d.ilerleme);
     await new Promise((r) => setTimeout(r, 2500));
   }
   throw new Error("Çok uzun sürdü, tekrar dene.");
@@ -226,7 +227,10 @@ function sekmeAc(ad) {
   $("#sayfa-uret").hidden = ad !== "uret";
   $("#sayfa-galeri").hidden = ad !== "galeri";
   $("#sayfa-kota").hidden = ad !== "kota";
+  $("#sayfa-arastir").hidden = ad !== "arastir";
   $("#uret").hidden = ad !== "uret";
+  $("#ar-yazi").hidden = ad !== "arastir";
+  if (ad === "arastir") arastirAc();
   if (ad === "galeri") galeriCiz();
   if (ad === "kota") kotaYukle();
   window.scrollTo(0, 0);
@@ -880,6 +884,261 @@ async function kotaYukle() {
   }
 }
 $("#kota-yenile").addEventListener("click", kotaYukle);
+
+// --- Araştırma asistanı ---
+const ar = { tur: "soru", hedef: "foto", sohbet: [], calisiyor: false };
+const AR_IPUCU = {
+  soru: "Bir soru sor…",
+  arastirma: "Araştırılacak konuyu yaz… (1-4 dk sürebilir)",
+  prompt: "Fikrini Türkçe yaz, İngilizce prompt hazırlayayım…",
+};
+const AR_ETIKET = { soru: "Soru", arastirma: "Derin araştırma", prompt: "Prompt" };
+
+try { ar.sohbet = JSON.parse(depo.al("arastirma-sohbet") || "[]"); } catch { ar.sohbet = []; }
+const arKaydet = () => depo.koy("arastirma-sohbet", JSON.stringify(ar.sohbet.slice(-60)));
+
+function arSegment(id, anahtar) {
+  $$(`#${id} button`).forEach((b) => b.addEventListener("click", () => {
+    ar[anahtar] = b.dataset.v;
+    $$(`#${id} button`).forEach((x) => x.classList.toggle("secili", x === b));
+    arAyarGuncelle();
+  }));
+}
+arSegment("ar-tur", "tur");
+arSegment("ar-hedef", "hedef");
+
+function arAyarGuncelle() {
+  $("#ar-hedef").hidden = ar.tur !== "prompt";
+  $("#ar-girdi").placeholder = AR_IPUCU[ar.tur];
+}
+
+let arAcildi = false;
+function arastirAc() {
+  if (!arAcildi) { arAcildi = true; arCiz(); }
+  arSayacGuncelle();
+}
+
+async function arSayacGuncelle(bugun) {
+  try {
+    const d = bugun === undefined ? await api("arastirma-sayac") : { bugun, limit: 50 };
+    $("#ar-sayac").textContent = `Bugün ${d.bugun}/${d.limit}`;
+    $("#ar-sayac").title = "Bugün kullanılan ücretsiz model isteği";
+  } catch {}
+}
+
+// Güvenli, küçük bir Markdown dönüştürücü: önce her şey kaçırılır, sonra izin verilen biçimler eklenir.
+function kacir(t) {
+  return t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function satirIci(t, kaynakSayisi) {
+  return t
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<i>$2</i>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>')
+    .replace(/\[(\d{1,3})\]/g, (m, n) => (n >= 1 && n <= kaynakSayisi ? `<a class="atif" href="#" data-n="${n}">[${n}]</a>` : m));
+}
+function md(metin, kaynakSayisi = 0) {
+  const satirlar = kacir(metin).split("\n");
+  const html = [];
+  let i = 0;
+  while (i < satirlar.length) {
+    const s = satirlar[i];
+    if (/^```/.test(s)) {
+      const kod = [];
+      i++;
+      while (i < satirlar.length && !/^```/.test(satirlar[i])) kod.push(satirlar[i++]);
+      i++;
+      html.push(`<pre><code>${kod.join("\n")}</code></pre>`);
+      continue;
+    }
+    const b = s.match(/^(#{1,4})\s+(.*)/);
+    if (b) { const n = Math.min(3, b[1].length); html.push(`<h${n}>${satirIci(b[2], kaynakSayisi)}</h${n}>`); i++; continue; }
+    if (/^\s*\|/.test(s)) {
+      const tablo = [];
+      while (i < satirlar.length && /^\s*\|/.test(satirlar[i])) tablo.push(satirlar[i++]);
+      const hucre = (r) => r.trim().replace(/^\||\|$/g, "").split("|").map((h) => satirIci(h.trim(), kaynakSayisi));
+      const satir = tablo.filter((r) => !/^\s*\|?\s*:?-{2,}/.test(r));
+      const [bas, ...govde] = satir;
+      html.push('<div class="tablo"><table><thead><tr>' + hucre(bas).map((h) => `<th>${h}</th>`).join("") + "</tr></thead><tbody>" +
+        govde.map((r) => "<tr>" + hucre(r).map((h) => `<td>${h}</td>`).join("") + "</tr>").join("") + "</tbody></table></div>");
+      continue;
+    }
+    if (/^\s*([-*•]|\d+[.)])\s+/.test(s)) {
+      const sirali = /^\s*\d+[.)]/.test(s);
+      const maddeler = [];
+      while (i < satirlar.length && /^\s*([-*•]|\d+[.)])\s+/.test(satirlar[i])) {
+        maddeler.push(satirlar[i++].replace(/^\s*([-*•]|\d+[.)])\s+/, ""));
+      }
+      const e = sirali ? "ol" : "ul";
+      html.push(`<${e}>` + maddeler.map((m) => `<li>${satirIci(m, kaynakSayisi)}</li>`).join("") + `</${e}>`);
+      continue;
+    }
+    if (!s.trim()) { i++; continue; }
+    const p = [];
+    while (i < satirlar.length && satirlar[i].trim() && !/^(#{1,4}\s|```|\s*\||\s*([-*•]|\d+[.)])\s)/.test(satirlar[i])) p.push(satirlar[i++]);
+    html.push(`<p>${satirIci(p.join("<br>"), kaynakSayisi)}</p>`);
+  }
+  return html.join("");
+}
+
+function arBalon(m) {
+  const d = document.createElement("div");
+  if (m.rol === "kullanici") {
+    d.className = "balon kullanici";
+    d.textContent = m.metin;
+    return d;
+  }
+  d.className = "balon asistan" + (m.hata ? " hata" : "");
+  const etiket = document.createElement("div");
+  etiket.className = "etiketcik";
+  etiket.textContent = AR_ETIKET[m.tur] + (m.tur === "prompt" ? (m.hedef === "video" ? " · Video" : " · Fotoğraf") : "");
+  d.appendChild(etiket);
+  const icerik = document.createElement("div");
+  icerik.className = "md";
+  if (m.hata) icerik.textContent = m.hata;
+  else if (m.tur === "prompt") icerik.textContent = m.metin;
+  else icerik.innerHTML = md(m.metin, (m.kaynaklar || []).length);
+  d.appendChild(icerik);
+
+  const kaynaklar = m.kaynaklar || [];
+  if (kaynaklar.length) {
+    const det = document.createElement("details");
+    det.className = "kaynaklar";
+    det.innerHTML = `<summary>Kaynaklar (${kaynaklar.length})</summary><ol></ol>`;
+    for (const k of kaynaklar) {
+      const li = document.createElement("li");
+      const a = document.createElement("a");
+      a.href = k.url;
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.textContent = k.baslik || k.url;
+      li.appendChild(a);
+      det.querySelector("ol").appendChild(li);
+    }
+    d.appendChild(det);
+    // Metindeki [n] atıfına dokununca kaynağı aç
+    icerik.addEventListener("click", (e) => {
+      const at = e.target.closest(".atif");
+      if (!at) return;
+      e.preventDefault();
+      const k = kaynaklar[Number(at.dataset.n) - 1];
+      if (k) window.open(k.url, "_blank", "noopener");
+    });
+  }
+
+  if (!m.hata) {
+    const alt = document.createElement("div");
+    alt.className = "balon-alt";
+    const bilgi = document.createElement("span");
+    bilgi.className = "soluk";
+    bilgi.textContent = (m.model || "").replace(/:free$/, "").split("/").pop();
+    alt.appendChild(bilgi);
+    const kopya = document.createElement("button");
+    kopya.className = "kucuk-buton";
+    kopya.innerHTML = '<svg><use href="#i-kopyala"/></svg>Kopyala';
+    kopya.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(m.metin); bildir("Kopyalandı."); } catch { bildir("Kopyalanamadı."); }
+    });
+    alt.appendChild(kopya);
+    if (m.tur === "prompt") {
+      const gonder = document.createElement("button");
+      gonder.className = "kucuk-buton vurgulu";
+      gonder.innerHTML = '<svg><use href="#i-parilti"/></svg>Üret\'e gönder';
+      gonder.addEventListener("click", () => {
+        turSec(m.hedef === "video" ? "video" : "foto");
+        if (m.hedef !== "video") modSec("serbest");
+        $("#prompt").value = m.metin;
+        sekmeAc("uret");
+        bildir("Prompt Üret ekranına yerleştirildi.");
+      });
+      alt.appendChild(gonder);
+    }
+    d.appendChild(alt);
+  }
+  return d;
+}
+
+function arCiz() {
+  const kutu = $("#ar-mesajlar");
+  kutu.innerHTML = "";
+  ar.sohbet.forEach((m) => kutu.appendChild(arBalon(m)));
+  $("#ar-bos").hidden = ar.sohbet.length > 0;
+}
+
+function asagiKaydir() {
+  window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+}
+
+async function arGonder() {
+  const metin = $("#ar-girdi").value.trim();
+  if (!metin || ar.calisiyor) return;
+  ar.calisiyor = true;
+  $("#ar-gonder").disabled = true;
+  $("#ar-girdi").value = "";
+  girdiBoyutla();
+  const tur = ar.tur;
+  const hedef = ar.hedef;
+  ar.sohbet.push({ rol: "kullanici", metin, tur });
+  arKaydet();
+  arCiz();
+
+  // Bekleme balonu: sunucudan gelen adımlar ve geçen süre
+  const bekle = document.createElement("div");
+  bekle.className = "balon asistan bekliyor";
+  bekle.innerHTML = `<div class="etiketcik">${AR_ETIKET[tur]}</div><ul class="adimlar"><li>⏳ Başlatılıyor</li></ul><div class="sure"></div>`;
+  $("#ar-mesajlar").appendChild(bekle);
+  asagiKaydir();
+  const bas = Date.now();
+  const sayac = setInterval(() => {
+    const sn = Math.round((Date.now() - bas) / 1000);
+    bekle.querySelector(".sure").textContent = sn < 60 ? `${sn} sn` : `${Math.floor(sn / 60)} dk ${sn % 60} sn`;
+  }, 1000);
+
+  try {
+    // Prompt modunda yalnızca son fikir; diğerlerinde sohbet geçmişi (hatalar hariç) gönderilir.
+    const gecmis = tur === "prompt"
+      ? [{ rol: "kullanici", metin }]
+      : ar.sohbet.filter((m) => !m.hata && m.tur !== "prompt").map((m) => ({ rol: m.rol, metin: m.metin })).slice(-12);
+    const b = await api("arastir", { tur, hedef, mesajlar: gecmis });
+    const d = await isBekle(b.is, 15, (adimlar) => {
+      bekle.querySelector(".adimlar").innerHTML = adimlar.map((a) => `<li>${kacir(a)}</li>`).join("");
+    });
+    if (d.hata) {
+      ar.sohbet.push({ rol: "asistan", tur, hata: d.hata, metin: "" });
+    } else {
+      ar.sohbet.push({ rol: "asistan", tur, hedef, metin: d.cevap || "(boş cevap)", kaynaklar: d.kaynaklar || [], model: d.model });
+    }
+    if (d.bugun_istek !== undefined) arSayacGuncelle(d.bugun_istek);
+  } catch (err) {
+    ar.sohbet.push({ rol: "asistan", tur, hata: "Olmadı: " + err.message, metin: "" });
+  } finally {
+    clearInterval(sayac);
+    ar.calisiyor = false;
+    $("#ar-gonder").disabled = false;
+    arKaydet();
+    arCiz();
+    asagiKaydir();
+  }
+}
+$("#ar-gonder").addEventListener("click", arGonder);
+
+function girdiBoyutla() {
+  const g = $("#ar-girdi");
+  g.style.height = "auto";
+  g.style.height = Math.min(160, g.scrollHeight + 2) + "px";
+}
+$("#ar-girdi").addEventListener("input", girdiBoyutla);
+
+$("#ar-yeni").addEventListener("click", () => {
+  if (ar.calisiyor) return;
+  if (ar.sohbet.length && !confirm("Yeni sohbet başlatılsın mı? Bu sohbet silinir.")) return;
+  ar.sohbet = [];
+  arKaydet();
+  arCiz();
+});
+arAyarGuncelle();
 
 // --- Uygulama olarak yükleme (Android "Ana ekrana ekle") ---
 let yuklemeIstemi = null;
