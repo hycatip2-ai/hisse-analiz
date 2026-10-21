@@ -72,11 +72,15 @@ Kodda değişiklik yapılıp `foto-uret/` klasörüne push edildiğinde deploy k
   ekleyebilirsin (telefondan seç veya Galeri'de bir fotoğrafı açıp **Canlandır**).
 - 5 veya 10 saniyelik, sesli, 24 fps video. Boyutlar: kare 1280×1280, dikey 1088×1920,
   yatay 1920×1088.
-- İki aşamalı üretim: önce yarım çözünürlükte hareket ve ses üretilir, sonra 2 kat büyütülüp
-  tam çözünürlükte ayrıntılar iyileştirilir (LTX'in önerdiği yöntem).
+- Açıklaman önce küçük bir yapay zeka (Gemma 4) ile ayrıntılı sahne tarifine çevrilir; kısa
+  yazman yeterli. Modelin kullandığı metni galeride uzun basıp **Bilgi**'de görebilirsin.
+- İki aşamalı üretim: önce tam model, rehberlik ve negatif listeyle yarım çözünürlükte hareket ve
+  ses üretilir; sonra 2 kat büyütülüp tam çözünürlükte ayrıntılar iyileştirilir.
+- Videoda mod (Gerçekçi, Portre...) kullanılmaz; bu ekler fotoğraf terimleri olduğu için video
+  modeli onları sahneye nesne olarak koyuyordu.
 - Video ayrı ve daha güçlü bir GPU'da (H200) çalışır. GPU uykudaysa model yüklenirken
   birkaç dakika eklenir.
-- Video modeli (~115 GB) deploy sırasında GPU'suz ucuz bir makinede bir kez indirilir
+- Video modeli (~110 GB) deploy sırasında GPU'suz ucuz bir makinede bir kez indirilir
   (GitHub Actions'taki "Video modelini indir" adımı; ilk seferde 10-30 dk sürebilir).
 
 ### Video için Hugging Face erişimi (bir kerelik)

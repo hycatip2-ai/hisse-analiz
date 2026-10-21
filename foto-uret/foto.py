@@ -2,8 +2,10 @@
 
 - Uretici: GPU (L40S) üzerinde Z-Image-Turbo ile fotoğraf üretir.
 - VideoUretici: GPU (H200) üzerinde LTX-2.5 ile sesli video üretir
-  (yazıdan veya bir fotoğraftan), iki aşamada: yarım çözünürlükte üretip
-  2 kat büyüterek tam çözünürlükte (1920×1088'e kadar) iyileştirir.
+  (yazıdan veya bir fotoğraftan). Açıklama önce Gemma 4 ile ayrıntılandırılır;
+  1. aşamada tam (SFT) model rehberlikle (CFG + STG + negatif liste) yarım
+  çözünürlükte üretir, 2. aşamada 2 kat büyütülüp distilled LoRA ile tam
+  çözünürlükte (1920×1088'e kadar) iyileştirilir.
 - video_modeli_indir: Video modelini (~115 GB) ucuz CPU'da bir kez indirir.
 - web: Telefon uygulamasını (PWA) ve API'yi sunar; ucuz CPU üzerinde çalışır,
   GPU'lar yalnızca üretim sırasında açılır.
@@ -25,13 +27,14 @@ VIDEO_MODEL_ID = "Lightricks/LTX-2.5-Diffusers"  # erişim için HF hesabı + to
 VIDEO_DIR = "/video-modeller"
 VIDEO_YOL = f"{VIDEO_DIR}/ltx-2.5"
 ESKI_VIDEO_YOL = f"{VIDEO_DIR}/ltx-2.3"
-# Kullanmadığımız büyük parçalar indirilmez (tam/SFT transformer, LoRA, prompt geliştirici...).
+VIDEO_LORA = "ltx-2.5-22b-distilled-lora-450-bf16.safetensors"  # 2. aşama
+# Kullanmadığımız büyük parçalar indirilmez. Distilled transformer (~76 GB) yerine
+# tam model + LoRA kullanılıyor: teşhiste distilled model yağlı/sert cilt ve zamanla
+# değişen yüzler üretti.
 VIDEO_INDIRME_HARIC = [
-    "transformer_full/*",
-    "prompt_enhancer/*",
+    "transformer/*",
     "diffusion_decoder/*",
     "temporal_latent_upsampler/*",
-    "ltx-2.5-*.safetensors",  # kökteki 2. aşama LoRA'sı (distilled modelde gereksiz)
 ]
 STATIK_DIR = "/statik"
 OTURUM_SURESI = 90 * 24 * 3600  # 90 gün
@@ -57,6 +60,8 @@ video_gpu_image = modal.Image.debian_slim(python_version="3.12").pip_install(
     "sentencepiece",
     "protobuf",
     "huggingface_hub",
+    "torchvision",  # Gemma4Processor (prompt geliştirme) bunu içe aktarıyor
+    "peft",  # 2. aşama LoRA'sı
 )
 indirme_image = modal.Image.debian_slim(python_version="3.12").pip_install("huggingface_hub")
 web_image = (
@@ -193,8 +198,9 @@ def video_modeli_indir():
     import shutil
 
     _video_modelini_indir()
-    # Önceki LTX-2.3 dosyaları artık kullanılmıyor.
+    # Artık kullanılmayan dosyalar: önceki LTX-2.3 ve distilled transformer.
     shutil.rmtree(ESKI_VIDEO_YOL, ignore_errors=True)
+    shutil.rmtree(f"{VIDEO_YOL}/transformer", ignore_errors=True)
     video_modeller.commit()
     print("Video modeli hazır:", VIDEO_YOL)
 
@@ -224,22 +230,57 @@ class VideoUretici:
 
     def _yukle(self):
         import torch
-        from diffusers import LTX2ImageToVideoPipeline, LTX2LatentUpsamplePipeline, LTX2Pipeline
+        from diffusers import (
+            FlowMatchEulerDiscreteScheduler,
+            LTX2ImageToVideoPipeline,
+            LTX2LatentUpsamplePipeline,
+            LTX2Pipeline,
+            LTX2VideoTransformer3DModel,
+        )
         from diffusers.pipelines.ltx2.latent_upsampler import LTX2LatentUpsamplerModel
+        from transformers import AutoModelForImageTextToText, AutoProcessor
 
         # Normalde video_modeli_indir zaten indirmiştir; eksik dosya varsa tamamlar.
         _video_modelini_indir()
-        # prompt_enhancer indirilmedi; processor yalnızca prompt geliştirmede kullanılır ve
-        # Gemma4Processor içe aktarılamıyor. None verilince ikisi de yüklenmez.
+        transformer = LTX2VideoTransformer3DModel.from_pretrained(
+            VIDEO_YOL, subfolder="transformer_full", torch_dtype=torch.bfloat16
+        )
+        # Prompt geliştirici ayrıca yüklenir; yüklenemezse video yine de üretilir.
         self.yazidan = LTX2Pipeline.from_pretrained(
-            VIDEO_YOL, torch_dtype=torch.bfloat16, prompt_enhancer=None, processor=None
+            VIDEO_YOL, transformer=transformer, torch_dtype=torch.bfloat16,
+            prompt_enhancer=None, processor=None,
         ).to("cuda")
         self.yazidan.vae.enable_tiling()
+        self.yazidan.load_lora_weights(VIDEO_YOL, adapter_name="asama2", weight_name=VIDEO_LORA)
+        self.yazidan.set_adapters("asama2", 1.0)
         self.fotodan = LTX2ImageToVideoPipeline(**self.yazidan.components)
+        # Depodaki zamanlayıcı distilled model için ayarlı; 1. aşama (tam model) dinamik kaydırma ister.
+        ayar = self.yazidan.scheduler.config
+        self.zamanlayici1 = FlowMatchEulerDiscreteScheduler.from_config(
+            ayar, use_dynamic_shifting=True, shift_terminal=0.1
+        )
+        self.zamanlayici2 = FlowMatchEulerDiscreteScheduler.from_config(
+            ayar, use_dynamic_shifting=False, shift_terminal=None
+        )
         buyutucu = LTX2LatentUpsamplerModel.from_pretrained(
             VIDEO_YOL, subfolder="latent_upsampler", torch_dtype=torch.bfloat16
         ).to("cuda")
         self.buyut = LTX2LatentUpsamplePipeline(vae=self.yazidan.vae, latent_upsampler=buyutucu)
+
+        self.gelistirici_hata = None
+        try:
+            gelistirici = AutoModelForImageTextToText.from_pretrained(
+                f"{VIDEO_YOL}/prompt_enhancer", torch_dtype=torch.bfloat16
+            ).to("cuda")
+            isleyici = AutoProcessor.from_pretrained(f"{VIDEO_YOL}/processor")
+            for pipe in (self.yazidan, self.fotodan):
+                pipe.prompt_enhancer = gelistirici
+                pipe.processor = isleyici
+        except Exception as e:
+            import traceback
+
+            self.gelistirici_hata = f"{type(e).__name__}: {e}"
+            print("Prompt geliştirici yüklenemedi; açıklama olduğu gibi kullanılacak.\n" + traceback.format_exc())
 
     def _hata_varsa(self):
         if self.hata:
@@ -258,34 +299,59 @@ class VideoUretici:
         import tempfile
 
         import torch
-        from diffusers.pipelines.ltx2.utils import DISTILLED_SIGMA_VALUES, STAGE_2_DISTILLED_SIGMA_VALUES
+        from diffusers.pipelines.ltx2.utils import (
+            DEFAULT_NEGATIVE_PROMPT,
+            LTX2_5_I2V_DEFAULT_SYSTEM_PROMPT,
+            LTX2_5_T2V_DEFAULT_SYSTEM_PROMPT,
+            STAGE_2_DISTILLED_SIGMA_VALUES,
+        )
         from diffusers.utils import encode_video
         from PIL import Image, ImageOps
 
         if tohum is None:
             tohum = random.randint(0, 2**31 - 1)
-        # Tek generator iki aşamada da kullanılır; 2. aşama gürültüyü tekrarlamaz, sürdürür.
-        generator = torch.Generator("cuda").manual_seed(tohum)
-        pipe, ek = self.yazidan, {}
+        pipe, ek, img = self.yazidan, {}, None
         if resim:
             img = Image.open(io.BytesIO(resim)).convert("RGB")
-            pipe, ek = self.fotodan, {"image": ImageOps.fit(img, (genislik, yukseklik), Image.LANCZOS)}
-        ortak = dict(
-            prompt=prompt,
-            num_frames=kare,
-            frame_rate=float(VIDEO_FPS),
-            guidance_scale=1.0,  # distilled model rehbersiz çalışır
-            audio_guidance_scale=1.0,
-            generator=generator,
-            return_dict=False,
-            **ek,
-        )
+            img = ImageOps.fit(img, (genislik, yukseklik), Image.LANCZOS)
+            pipe, ek = self.fotodan, {"image": img}
 
-        # 1. aşama: yarım çözünürlükte hareket ve ses (8 adım).
+        # Kısa açıklamayı modelin eğitildiği türde ayrıntılı sahne tarifine çevir
+        # (LTX-2.5 belgesi: "strongly recommended"). İki aşamada da aynı metin kullanılır.
+        gelismis = prompt
+        if self.gelistirici_hata is None:
+            try:
+                gelismis = pipe.enhance_prompt(
+                    prompt=prompt,
+                    system_prompt=LTX2_5_I2V_DEFAULT_SYSTEM_PROMPT if img else LTX2_5_T2V_DEFAULT_SYSTEM_PROMPT,
+                    image=img,
+                    device="cuda",
+                )[0] or prompt
+            except Exception as e:
+                print("Prompt geliştirme başarısız, açıklama olduğu gibi kullanılıyor:", type(e).__name__, e)
+        print("Kullanılan açıklama:", gelismis)
+
+        ortak = dict(prompt=gelismis, num_frames=kare, frame_rate=float(VIDEO_FPS), return_dict=False, **ek)
+
+        # 1. aşama: tam model, yarım çözünürlük, belgedeki rehberlik ayarları (LoRA kapalı).
+        pipe.disable_lora()
+        pipe.scheduler = self.zamanlayici1
         video_latent, ses_latent = pipe(
+            negative_prompt=DEFAULT_NEGATIVE_PROMPT,
             width=genislik // 2,
             height=yukseklik // 2,
-            sigmas=DISTILLED_SIGMA_VALUES,
+            num_inference_steps=30,
+            guidance_scale=3.0,
+            stg_scale=1.0,
+            modality_scale=3.0,
+            guidance_rescale=0.7,
+            audio_guidance_scale=7.0,
+            audio_stg_scale=1.0,
+            audio_modality_scale=3.0,
+            audio_guidance_rescale=0.7,
+            spatio_temporal_guidance_blocks=[28],
+            use_cross_timestep=True,
+            generator=torch.Generator("cuda").manual_seed(tohum),
             output_type="latent",
             **ortak,
         )
@@ -293,7 +359,9 @@ class VideoUretici:
         buyuk_latent = self.buyut(
             latents=video_latent, latents_normalized=False, output_type="latent", return_dict=False
         )[0]
-        # 2. aşama: tam çözünürlükte ayrıntıları iyileştir (3 adım).
+        # 2. aşama: distilled LoRA ile tam çözünürlükte ayrıntıları iyileştir (3 adım, rehbersiz).
+        pipe.enable_lora()
+        pipe.scheduler = self.zamanlayici2
         video, ses = pipe(
             latents=buyuk_latent,
             audio_latents=ses_latent,
@@ -301,6 +369,9 @@ class VideoUretici:
             height=yukseklik,
             sigmas=STAGE_2_DISTILLED_SIGMA_VALUES,
             noise_scale=STAGE_2_DISTILLED_SIGMA_VALUES[0],
+            guidance_scale=1.0,
+            audio_guidance_scale=1.0,
+            generator=torch.Generator("cuda").manual_seed(tohum + 1),
             output_type="np",
             **ortak,
         )
@@ -314,7 +385,7 @@ class VideoUretici:
                 output_path=f.name,
             )
             mp4 = Path(f.name).read_bytes()
-        return {"mp4": mp4, "tohum": tohum}
+        return {"mp4": mp4, "tohum": tohum, "gelismis_prompt": gelismis}
 
 
 @app.local_entrypoint()
@@ -325,10 +396,14 @@ def video_dene():
     bas = time.time()
     VideoUretici().isit.remote()
     print(f"Model yüklendi: {time.time() - bas:.0f} sn")
-    for ad, (g, y), kare in [("küçük", (768, 448), 49), ("tam boy 5 sn", VIDEO_BOYUTLARI["dikey"], VIDEO_KARELERI[5])]:
-        bas = time.time()
-        sonuc = VideoUretici().uret.remote("a red fox walking through a snowy forest, cinematic", g, y, kare, 1, None)
-        print(f"{ad}: {g}x{y}, {kare} kare -> {len(sonuc['mp4']) / 1e6:.1f} MB, {time.time() - bas:.0f} sn")
+    g, y = VIDEO_BOYUTLARI["dikey"]
+    bas = time.time()
+    sonuc = VideoUretici().uret.remote("a woman smiling and talking to the camera, close-up", g, y,
+                                       VIDEO_KARELERI[5], 1234, None)
+    print(f"tam boy 5 sn: {g}x{y} -> {len(sonuc['mp4']) / 1e6:.1f} MB, {time.time() - bas:.0f} sn")
+    print("Geliştirilmiş açıklama:", sonuc["gelismis_prompt"])
+    Path("tani-cikti").mkdir(exist_ok=True)
+    Path("tani-cikti/video_dene.mp4").write_bytes(sonuc["mp4"])
 
 
 def kota_bilgisi() -> dict:
@@ -452,8 +527,9 @@ def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None
     def uret(istek: Istek):
         if not istek.prompt.strip():
             raise HTTPException(status_code=400, detail="Açıklama boş")
-        prompt = son_prompt(istek.prompt, istek.mod)
         if istek.tur == "video":
+            # Mod ekleri fotoğraf terimleri; video modeli onları sahneye nesne olarak koyuyor.
+            prompt = istek.prompt.strip()[:2000]
             resim = None
             if istek.resim:
                 try:
@@ -463,6 +539,7 @@ def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None
             genislik, yukseklik = VIDEO_BOYUTLARI.get(istek.boyut, VIDEO_BOYUTLARI["yatay"])
             kimlik = baslat("video", prompt, genislik, yukseklik, VIDEO_KARELERI[istek.sure], istek.tohum, resim)
         else:
+            prompt = son_prompt(istek.prompt, istek.mod)
             genislik, yukseklik = boyut_hesapla(istek.boyut, istek.kalite)
             kimlik = baslat("foto", prompt, genislik, yukseklik, istek.adet, istek.tohum)
         return {"is": kimlik, "genislik": genislik, "yukseklik": yukseklik}
@@ -476,7 +553,8 @@ def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Üretim başarısız: {type(e).__name__}: {e}")
         if isinstance(sonuc, dict):  # video
-            return {"bitti": True, "video": base64.b64encode(sonuc["mp4"]).decode(), "tohum": sonuc["tohum"]}
+            return {"bitti": True, "video": base64.b64encode(sonuc["mp4"]).decode(), "tohum": sonuc["tohum"],
+                    "gelismis_prompt": sonuc.get("gelismis_prompt")}
         if not isinstance(sonuc, list):  # isit işi
             return {"bitti": True}
         return {

@@ -8,7 +8,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/static/icon-192.png">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-<link rel="stylesheet" href="/static/style.css?v=7">
+<link rel="stylesheet" href="/static/style.css?v=8">
 <title>Foto Stüdyo</title>
 </head>
 <body>
@@ -74,8 +74,10 @@
       </div>
     </div>
 
-    <div class="etiket bosluk">Mod</div>
-    <div id="modlar" class="modlar" role="radiogroup" aria-label="Mod"></div>
+    <div class="sadece-foto">
+      <div class="etiket bosluk">Mod</div>
+      <div id="modlar" class="modlar" role="radiogroup" aria-label="Mod"></div>
+    </div>
 
     <div class="etiket bosluk">Boyut</div>
     <div class="segment" id="boyut" role="radiogroup" aria-label="Boyut">
@@ -169,6 +171,10 @@
     <div id="menu-bilgi" class="menu-bilgi" hidden>
       <p id="m-prompt"></p>
       <p id="m-detay" class="soluk kucuk"></p>
+      <div id="m-gelismis-kutu" hidden>
+        <p class="etiket m-gelismis-baslik">Modelin kullandığı ayrıntılı açıklama</p>
+        <p id="m-gelismis" class="kucuk"></p>
+      </div>
     </div>
     <button data-is="kaydet" role="menuitem"><svg><use href="#i-indir"/></svg>Kaydet</button>
     <button data-is="paylas" role="menuitem"><svg><use href="#i-paylas"/></svg>Paylaş</button>
@@ -181,6 +187,6 @@
 
 <div id="bildirim" class="bildirim" hidden></div>
 
-<script src="/static/app.js?v=7"></script>
+<script src="/static/app.js?v=8"></script>
 </body>
 </html>

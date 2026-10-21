@@ -244,3 +244,7 @@ textarea { resize: none; min-height: 104px; }
 /* Yakınlaştırılmışken kaydırma kapalı; parmak hareketleri yakınlaştırmaya/kaydırmaya gider */
 .g-serit.yakin { overflow-x: hidden; touch-action: none; }
 .slayt img, .slayt video { transform-origin: center center; will-change: transform; }
+
+#m-gelismis-kutu { margin-top: 10px; }
+.m-gelismis-baslik { margin: 0 0 4px; }
+#m-gelismis { max-height: 9em; overflow-y: auto; color: var(--soluk); margin: 0; }

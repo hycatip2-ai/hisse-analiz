@@ -29,6 +29,11 @@ jobs:
         if: inputs.islem != 'tani' && inputs.islem != 'tani2'
         working-directory: foto-uret
         run: modal run foto.py::video_dene
+      - uses: actions/upload-artifact@v4
+        if: inputs.islem != 'tani' && inputs.islem != 'tani2'
+        with:
+          name: video-dene
+          path: foto-uret/tani-cikti/
       - name: Video kalite teşhisi
         if: inputs.islem == 'tani'
         working-directory: foto-uret

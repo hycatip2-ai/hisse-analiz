@@ -107,7 +107,7 @@ const BOYUT_ADI = { kare: "Kare", dikey: "Dikey", yatay: "Yatay", duvar: "Duvar 
 const IPUCU = {
   foto: ["Örn: a red vintage car on a rainy street at night", "İngilizce yazarsan daha iyi sonuç alırsın."],
   video: ["Örn: a golden retriever running on a beach at sunset, waves crashing, camera tracking alongside",
-    "Sahneyi, hareketi ve kamerayı ayrıntılı anlat. Video sesli üretilir. İngilizce daha iyi sonuç verir."],
+    "Kısa yazman yeterli; açıklaman otomatik olarak ayrıntılandırılır. Video sesli üretilir. İngilizce daha iyi sonuç verir."],
 };
 
 // --- Giriş / çıkış ---
@@ -335,7 +335,7 @@ $("#uret").addEventListener("click", async () => {
     };
     const kayitlar = video
       ? [{ ...ortak, id: Date.now() + "-v" + d.tohum, blob: base64Blob(d.video, "video/mp4"), tohum: d.tohum,
-           sure: istek.sure, fotodan: !!istek.resim }]
+           sure: istek.sure, fotodan: !!istek.resim, gelismisPrompt: d.gelismis_prompt || null }]
       : d.gorseller.map((g) => ({ ...ortak, id: Date.now() + "-" + g.tohum, blob: base64Blob(g.veri, "image/jpeg"), tohum: g.tohum }));
     for (const k of kayitlar) {
       await galeriEkle(k);
@@ -600,6 +600,9 @@ function menuAc(o) {
     mod ? mod.ad : k.mod, BOYUT_ADI[k.boyut], `${k.genislik}×${k.yukseklik}`, `Tohum ${k.tohum}`,
     new Date(k.tarih).toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" }),
   ].filter(Boolean).join(" · ");
+  const gelismis = video && k.gelismisPrompt && k.gelismisPrompt !== k.prompt;
+  $("#m-gelismis-kutu").hidden = !gelismis;
+  $("#m-gelismis").textContent = gelismis ? k.gelismisPrompt : "";
   $("#menu").hidden = false;
   katmanEkle("m");
 }
