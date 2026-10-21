@@ -45,11 +45,16 @@ gpu_image = modal.Image.debian_slim(python_version="3.12").pip_install(
     "huggingface_hub",
     "peft",  # LoRA yükleme için
 ).add_local_python_source("video_tani")
-indirme_image = modal.Image.debian_slim(python_version="3.12").pip_install("huggingface_hub")
+# Bu dosya video_tani'yı içe aktardığı için her imajda o da bulunmalı.
+indirme_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .pip_install("huggingface_hub")
+    .add_local_python_source("video_tani")
+)
 
 
 @app.function(image=indirme_image, volumes={VIDEO_DIR: video_modeller}, secrets=[hf_secret],
-              timeout=3600)
+              timeout=1800, retries=0)
 def ek_dosyalari_indir():
     """Tam transformer ve 2. aşama LoRA'sını GPU'suz makinede indirir."""
     import os
@@ -61,10 +66,21 @@ def ek_dosyalari_indir():
     video_modeller.commit()
 
 
-@app.cls(gpu="H200", image=gpu_image, volumes={VIDEO_DIR: video_modeller}, timeout=3600)
+@app.cls(gpu="H200", image=gpu_image, volumes={VIDEO_DIR: video_modeller}, timeout=1800, retries=0)
 class TamTani:
     @modal.enter()
     def yukle(self):
+        # Yükleme hatası konteyneri çökertmesin (çöken konteyner tekrar tekrar başlatılır).
+        import traceback
+
+        self.hata = None
+        try:
+            self._yukle()
+        except Exception:
+            self.hata = traceback.format_exc()
+            print(self.hata)
+
+    def _yukle(self):
         import torch
         from diffusers import LTX2LatentUpsamplePipeline, LTX2Pipeline, LTX2VideoTransformer3DModel
         from diffusers.pipelines.ltx2.latent_upsampler import LTX2LatentUpsamplerModel
@@ -85,6 +101,8 @@ class TamTani:
 
     @modal.method()
     def calistir(self):
+        if self.hata:
+            raise RuntimeError("Tam model yüklenemedi:\n" + self.hata)
         import torch
         from diffusers import FlowMatchEulerDiscreteScheduler
         from diffusers.pipelines.ltx2.utils import DEFAULT_NEGATIVE_PROMPT, STAGE_2_DISTILLED_SIGMA_VALUES

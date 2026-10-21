@@ -36,6 +36,7 @@ jobs:
       - name: Video kalite teşhisi (tam model)
         if: inputs.islem == 'tani2'
         working-directory: foto-uret/araclar
+        timeout-minutes: 40
         run: modal run video_tani_tam.py
       - uses: actions/upload-artifact@v4
         if: inputs.islem == 'tani2'
