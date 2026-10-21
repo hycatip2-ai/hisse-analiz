@@ -67,6 +67,17 @@ async function api(yol, govde) {
   return d;
 }
 
+// GPU işi arka planda çalışır; bitene kadar birkaç saniyede bir sorulur.
+async function isBekle(kimlik) {
+  const bas = Date.now();
+  while (Date.now() - bas < 10 * 60 * 1000) {
+    const d = await api("is/" + encodeURIComponent(kimlik));
+    if (d.bitti) return d;
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  throw new Error("Çok uzun sürdü, tekrar dene.");
+}
+
 function base64Blob(b64) {
   const ham = atob(b64);
   const dizi = new Uint8Array(ham.length);
@@ -176,7 +187,8 @@ async function isit() {
   isiniyor = true;
   sunucuCiz();
   try {
-    await api("isit", {});
+    const d = await api("isit", {});
+    await isBekle(d.is);
     sonGpu = Date.now();
   } catch {}
   isiniyor = false;
@@ -219,7 +231,8 @@ $("#uret").addEventListener("click", async () => {
   sonuclar.scrollIntoView({ behavior: "smooth", block: "nearest" });
 
   try {
-    const d = await api("uret", istek);
+    const baslangic = await api("uret", istek);
+    const d = { ...baslangic, ...(await isBekle(baslangic.is)) };
     sonGpu = Date.now();
     sonuclar.innerHTML = "";
     for (const g of d.gorseller) {

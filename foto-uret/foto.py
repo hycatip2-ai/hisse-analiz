@@ -132,8 +132,17 @@ class Uretici:
         return sonuc
 
 
-def uygulama_olustur(sifre: str, uret_fn, isit_fn, statik_dir: str):
-    """Web uygulamasını kurar. Yerel testte sahte uret_fn/isit_fn verilebilir."""
+def uygulama_olustur(sifre: str, uret_baslat, isit_baslat, sonuc_al, statik_dir: str):
+    """Web uygulamasını kurar. Yerel testte sahte fonksiyonlar verilebilir.
+
+    GPU işleri arka planda başlatılır ve iş kimliği hemen döner; telefon
+    sonucu /api/is/{kimlik} ile birkaç saniyede bir sorar. Böylece hiçbir
+    istek uzun sürmez (Modal 150 sn'yi aşan istekleri yönlendirir ve
+    tarayıcıda "invalid function call" hatası çıkabiliyordu).
+
+    uret_baslat(*args) / isit_baslat() -> iş kimliği
+    sonuc_al(kimlik) -> sonuç; hazır değilse TimeoutError
+    """
     import base64
     import hashlib
     import hmac
@@ -180,22 +189,30 @@ def uygulama_olustur(sifre: str, uret_fn, isit_fn, statik_dir: str):
 
     @api.post("/api/isit", dependencies=[Depends(oturum_kontrol)])
     def isit():
-        isit_fn()
-        return {"hazir": True}
+        return {"is": isit_baslat()}
 
     @api.post("/api/uret", dependencies=[Depends(oturum_kontrol)])
     def uret(istek: Istek):
         if not istek.prompt.strip():
             raise HTTPException(status_code=400, detail="Açıklama boş")
         genislik, yukseklik = boyut_hesapla(istek.boyut, istek.kalite)
-        bas = time.time()
-        gorseller = uret_fn(son_prompt(istek.prompt, istek.mod), genislik, yukseklik, istek.adet, istek.tohum)
+        kimlik = uret_baslat(son_prompt(istek.prompt, istek.mod), genislik, yukseklik, istek.adet, istek.tohum)
+        return {"is": kimlik, "genislik": genislik, "yukseklik": yukseklik}
+
+    @api.get("/api/is/{kimlik}", dependencies=[Depends(oturum_kontrol)])
+    def is_durumu(kimlik: str):
+        try:
+            sonuc = sonuc_al(kimlik)
+        except TimeoutError:
+            return {"bitti": False}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Üretim başarısız: {type(e).__name__}: {e}")
+        if not isinstance(sonuc, list):  # isit işi
+            return {"bitti": True}
         return {
-            "sure": round(time.time() - bas, 1),
-            "genislik": genislik,
-            "yukseklik": yukseklik,
+            "bitti": True,
             "gorseller": [
-                {"veri": base64.b64encode(g["jpeg"]).decode(), "tohum": g["tohum"]} for g in gorseller
+                {"veri": base64.b64encode(g["jpeg"]).decode(), "tohum": g["tohum"]} for g in sonuc
             ],
         }
 
@@ -223,7 +240,8 @@ def uygulama_olustur(sifre: str, uret_fn, isit_fn, statik_dir: str):
 def web():
     return uygulama_olustur(
         sifre=os.environ["SIFRE"],
-        uret_fn=lambda *a: Uretici().uret.remote(*a),
-        isit_fn=lambda: Uretici().isit.remote(),
+        uret_baslat=lambda *a: Uretici().uret.spawn(*a).object_id,
+        isit_baslat=lambda: Uretici().isit.spawn().object_id,
+        sonuc_al=lambda kimlik: modal.FunctionCall.from_id(kimlik).get(timeout=0),
         statik_dir=STATIK_DIR,
     )
