@@ -32,3 +32,10 @@ jobs:
         run: modal billing summary || true
       - name: Saatlik kullanım (son 1 gün)
         run: modal billing report --for today --resolution h --show-resources || true
+      - uses: actions/checkout@v4
+      - name: Kota ekranının okuduğu veri
+        working-directory: foto-uret
+        env:
+          KOTA_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          KOTA_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: python -c "import json, foto; print(json.dumps(foto.kota_bilgisi(), indent=2, default=str))"
