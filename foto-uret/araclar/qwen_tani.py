@@ -32,7 +32,8 @@ def indir():
     modeller.commit()
 
 
-@app.cls(gpu="L40S", image=gpu_image, volumes={MODEL_DIR: modeller}, timeout=1800)
+@app.cls(gpu="L40S", image=gpu_image.env({"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}),
+         volumes={MODEL_DIR: modeller}, timeout=1800)
 class QwenTani:
     @modal.enter()
     def yukle(self):
@@ -45,6 +46,8 @@ class QwenTani:
 
             bas = time.time()
             self.pipe = QwenImage21Pipeline.from_pretrained(QWEN_YOL, torch_dtype=torch.bfloat16).to("cuda")
+            if hasattr(self.pipe.vae, "enable_tiling"):
+                self.pipe.vae.enable_tiling()
             self.yukleme = time.time() - bas
         except Exception:
             self.hata = traceback.format_exc()
@@ -53,6 +56,7 @@ class QwenTani:
     def _uret(self, prompt, tohum, **k):
         import torch
 
+        torch.cuda.empty_cache()
         torch.cuda.synchronize()
         bas = time.time()
         img = self.pipe(prompt=prompt, generator=torch.Generator("cuda").manual_seed(tohum), **k).images[0]
@@ -72,39 +76,43 @@ class QwenTani:
             img.convert("RGB").save(buf, format="JPEG", quality=92)
             sonuc[ad] = buf.getvalue()
 
+        def dene(ad, prompt, tohum, **k):
+            try:
+                img, sureler[ad] = self._uret(prompt, tohum, **k)
+                kaydet(ad, img)
+                return img
+            except Exception as e:  # bellek yetmezse vb.
+                sureler[ad] = f"HATA {type(e).__name__}: {str(e)[:150]}"
+                return None
+
         # 1) Yazıdan portre, 1 MP (varsayılan) ve ~4 MP
         portre = ("A candid close-up portrait of a woman in her thirties with short curly auburn hair, freckles and "
                   "green eyes, wearing a mustard knit sweater, sitting in a cozy cafe by the window, natural soft "
                   "daylight, realistic skin texture, shot on 50mm")
-        img, sureler["1_portre_1mp"] = self._uret(portre, 7)
-        kaydet("1_portre_1mp", img)
-        referans1 = img
-        img, sureler["2_portre_4mp"] = self._uret(portre, 7, width=1792, height=2400)
-        kaydet("2_portre_4mp", img)
+        referans1 = dene("1_portre_1mp", portre, 7)
+        dene("2_portre_2mp", portre, 7, width=1216, height=1664)
         sureler["bellek_gb"] = round(torch.cuda.max_memory_allocated() / 1e9, 1)
+        if referans1 is None:
+            return {"gorseller": sonuc, "sureler": sureler}
 
         # 2) Tek referans: aynı kişi başka sahnede
-        img, sureler["3_referans_sahil"] = self._uret(
-            "The same woman from the reference image, now standing on a sunny beach wearing a navy business suit, "
-            "full body shot, waves behind her. Keep her face, hair and freckles identical.",
-            11, image=[referans1])
-        kaydet("3_referans_sahil", img)
+        dene("3_referans_sahil",
+             "The same woman from the reference image, now standing on a sunny beach wearing a navy business suit, "
+             "full body shot, waves behind her. Keep her face, hair and freckles identical.", 11, image=[referans1])
 
         # 3) İki referans: iki yapay kişi tek sahnede
-        adam, sureler["4_ikinci_kisi"] = self._uret(
-            "A portrait of a bald man in his fifties with a grey beard and round glasses, wearing a denim shirt, "
-            "plain studio background, realistic", 21)
-        kaydet("4_ikinci_kisi", adam)
-        img, sureler["5_iki_referans"] = self._uret(
-            "The woman from the first image and the man from the second image are sitting together at an outdoor "
-            "cafe table, laughing and drinking coffee, natural afternoon light. Keep both of their faces identical "
-            "to the references.", 31, image=[referans1, adam])
-        kaydet("5_iki_referans", img)
+        adam = dene("4_ikinci_kisi", "A portrait of a bald man in his fifties with a grey beard and round glasses, "
+                    "wearing a denim shirt, plain studio background, realistic", 21)
+        if adam is not None:
+            dene("5_iki_referans",
+                 "The woman from the first image and the man from the second image are sitting together at an "
+                 "outdoor cafe table, laughing and drinking coffee, natural afternoon light. Keep both of their faces "
+                 "identical to the references.", 31, image=[referans1, adam])
 
         # 4) Düzenleme: yalnızca arka planı değiştir
-        img, sureler["6_duzenleme"] = self._uret("Change only the background to a snowy mountain village at dusk. "
-                                                 "Keep the woman exactly the same.", 41, image=[referans1])
-        kaydet("6_duzenleme", img)
+        dene("6_duzenleme", "Change only the background to a snowy mountain village at dusk. "
+             "Keep the woman exactly the same.", 41, image=[referans1])
+        sureler["bellek_gb_son"] = round(torch.cuda.max_memory_allocated() / 1e9, 1)
         return {"gorseller": sonuc, "sureler": sureler}
 
 
