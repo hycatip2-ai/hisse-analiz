@@ -1,11 +1,8 @@
 name: Foto Üret - Video denemesi
 
 # Video modelini gerçek GPU'da yükleyip kısa bir video üretir ve süreleri yazar
-# (yaklaşık 0,3-0,6 $ GPU süresi harcar). Yalnızca elle ya da bu dosya değişince çalışır.
+# (yaklaşık 0,3-0,6 $ GPU süresi harcar). Yalnızca elle başlatılır; kendiliğinden hiç çalışmaz.
 on:
-  push:
-    paths:
-      - ".github/workflows/foto-video-dene.yml"
   workflow_dispatch:
 
 jobs:
