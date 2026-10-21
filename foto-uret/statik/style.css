@@ -162,3 +162,30 @@ textarea { resize: none; min-height: 104px; }
   background: var(--yuzey-2); border: 1px solid var(--cizgi); padding: 10px 16px; border-radius: 12px;
   font-size: .9rem; max-width: calc(100% - 32px); box-shadow: 0 10px 30px rgba(0, 0, 0, .5);
 }
+
+/* Fotoğraf / Video seçimi */
+#uygulama:not(.tur-video) .sadece-video,
+#uygulama.tur-video .sadece-foto { display: none !important; }
+.tur-secici { margin-bottom: 14px; }
+.tur-secici button { padding: 11px 4px; font-size: .95rem; }
+.etiket .normal { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.baslangic { margin-top: 14px; }
+.ikincil-buton {
+  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
+  padding: 12px; border-radius: 12px; border: 1px dashed var(--cizgi); background: var(--yuzey-2);
+  font-weight: 600; cursor: pointer;
+}
+.baslangic-dolu { display: flex; align-items: center; gap: 12px; }
+.baslangic-dolu img { width: 64px; height: 64px; object-fit: cover; border-radius: 10px; flex: none; }
+.baslangic-dolu span { flex: 1; font-size: .9rem; }
+
+/* Video önizlemeleri */
+.sonuc video, .galeri video { width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
+.sonuc video { object-fit: contain; }
+.galeri button { position: relative; }
+.galeri .rozet {
+  position: absolute; right: 6px; bottom: 6px; display: grid; place-items: center;
+  width: 24px; height: 24px; border-radius: 50%; background: rgba(0, 0, 0, .6); font-size: 11px; color: #fff;
+}
+.g-resim video { max-width: 100%; max-height: 100%; border-radius: 10px; background: #000; }
+.g-butonlar { grid-template-columns: repeat(auto-fit, minmax(60px, 1fr)); }

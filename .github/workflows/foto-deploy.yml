@@ -47,3 +47,9 @@ jobs:
         if: steps.kontrol.outputs.hazir == 'true'
         working-directory: foto-uret
         run: modal deploy foto.py
+
+      # Video modelini (~100 GB) GPU'suz ucuz bir makinede indirir; zaten varsa hızlıca geçer.
+      - name: Video modelini indir
+        if: steps.kontrol.outputs.hazir == 'true'
+        working-directory: foto-uret
+        run: modal run foto.py::video_modeli_indir

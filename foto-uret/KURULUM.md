@@ -1,8 +1,9 @@
 # Foto Stüdyo: Kurulum
 
-Telefona kurulabilen yapay zeka görsel üretme uygulaması (PWA). Modal (bulut GPU) üzerinde
-**Z-Image-Turbo** modeli çalışır; model ücretsizdir (Apache 2.0), GPU süresi
-Modal'ın aylık ücretsiz kredisinden düşer.
+Telefona kurulabilen yapay zeka fotoğraf ve video üretme uygulaması (PWA). Modal (bulut GPU)
+üzerinde fotoğraf için **Z-Image-Turbo** (Apache 2.0), video için **LTX-2.3** (sesli video;
+yıllık geliri 10 milyon $ altı için ücretsiz LTX lisansı) çalışır. GPU süresi Modal'ın
+aylık ücretsiz kredisinden düşer.
 
 ## 0. Bilgisayarsız kurulum (sadece telefon)
 
@@ -65,11 +66,21 @@ Kodda değişiklik yapılıp `foto-uret/` klasörüne push edildiğinde deploy k
 - Aynı "tohum" sayısı ile aynı açıklama aynı resmi verir; beğendiğin bir sonucu
   küçük değişikliklerle tekrar üretmek için işe yarar.
 
+## Video
+
+- Üret ekranında **Video**'yu seç. Yazıdan video üretebilir ya da bir başlangıç fotoğrafı
+  ekleyebilirsin (telefondan seç veya Galeri'de bir fotoğrafı açıp **Canlandır**).
+- 5 veya 10 saniyelik, sesli, 24 fps video. Boyutlar: kare 640×640, dikey 512×768, yatay 768×512.
+- Video ayrı ve daha güçlü bir GPU'da (H200) çalışır. Bir video genelde 2-5 dakika sürer;
+  GPU uykudaysa model yüklenirken birkaç dakika daha eklenir.
+- Video modeli (~100 GB) deploy sırasında GPU'suz ucuz bir makinede bir kez indirilir
+  (GitHub Actions'taki "Video modelini indir" adımı; ilk seferde 10-30 dk sürebilir).
+
 ## Maliyet
 
 - 2 dakika kullanılmazsa GPU kendiliğinden kapanır; kapalıyken ücret yok.
-- Aynı anda en fazla 1 GPU açılır (`max_containers=1`).
-- Kabaca resim başına birkaç kuruş; aylık ücretsiz kredi kişisel kullanım için
+- Fotoğraf ve video için ayrı ayrı, aynı anda en fazla 1 GPU açılır (`max_containers=1`).
+- Kabaca fotoğraf başına birkaç kuruş, video başına yaklaşık 0,15-0,50 $; aylık ücretsiz kredi kişisel kullanım için
   genelde yeterli. Güncel fiyatlar: https://modal.com/pricing
 
 ## Değiştirmek istersen

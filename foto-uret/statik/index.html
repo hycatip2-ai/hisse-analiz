@@ -21,6 +21,8 @@
   <symbol id="i-tekrar" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 12a9 9 0 0115.5-6.3L21 8M21 3v5h-5M21 12a9 9 0 01-15.5 6.3L3 16M3 21v-5h5"/></symbol>
   <symbol id="i-sil" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15"/></symbol>
   <symbol id="i-kapat" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M3 6h12v12H3zM15 10l6-3v10l-6-3"/></symbol>
+  <symbol id="i-foto" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="i-yukle" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12M7 10l5 5 5-5M4 21h16"/></symbol>
 </svg>
 
@@ -46,10 +48,28 @@
   </header>
 
   <main id="sayfa-uret" class="sayfa">
+    <div class="segment tur-secici" id="tur" role="radiogroup" aria-label="Tür">
+      <button data-v="foto" class="secili"><svg><use href="#i-foto"/></svg>Fotoğraf</button>
+      <button data-v="video"><svg><use href="#i-video"/></svg>Video</button>
+    </div>
+
     <div class="kart">
       <label class="etiket" for="prompt">Ne görmek istiyorsun?</label>
       <textarea id="prompt" rows="4" maxlength="2000" placeholder="Örn: a red vintage car on a rainy street at night"></textarea>
-      <p class="ipucu">İngilizce yazarsan daha iyi sonuç alırsın.</p>
+      <p class="ipucu" id="prompt-ipucu">İngilizce yazarsan daha iyi sonuç alırsın.</p>
+    </div>
+
+    <div class="kart baslangic sadece-video">
+      <div class="etiket">Başlangıç fotoğrafı <span class="normal">(isteğe bağlı)</span></div>
+      <div id="baslangic-bos">
+        <label class="ikincil-buton"><input id="baslangic-dosya" type="file" accept="image/*" hidden><svg><use href="#i-foto"/></svg>Telefondan seç</label>
+        <p class="ipucu">Ya da Galeri'de bir fotoğrafı açıp <b>Canlandır</b>'a bas.</p>
+      </div>
+      <div id="baslangic-dolu" class="baslangic-dolu" hidden>
+        <img id="baslangic-img" alt="Başlangıç fotoğrafı">
+        <span>Bu fotoğraf canlandırılacak</span>
+        <button id="baslangic-sil" class="ikon-buton" aria-label="Fotoğrafı kaldır"><svg><use href="#i-kapat"/></svg></button>
+      </div>
     </div>
 
     <div class="etiket bosluk">Mod</div>
@@ -60,10 +80,17 @@
       <button data-v="kare" class="secili"><span class="oran kare"></span>Kare</button>
       <button data-v="dikey"><span class="oran dikey"></span>Dikey</button>
       <button data-v="yatay"><span class="oran yatay"></span>Yatay</button>
-      <button data-v="duvar"><span class="oran duvar"></span>Duvar</button>
+      <button data-v="duvar" class="sadece-foto"><span class="oran duvar"></span>Duvar</button>
     </div>
 
-    <div class="iki-kolon">
+    <div class="sadece-video">
+      <div class="etiket bosluk">Süre</div>
+      <div class="segment" id="sure" role="radiogroup" aria-label="Süre">
+        <button data-v="5" class="secili">5 saniye</button><button data-v="10">10 saniye</button>
+      </div>
+    </div>
+
+    <div class="iki-kolon sadece-foto">
       <div>
         <div class="etiket bosluk">Adet</div>
         <div class="segment" id="adet" role="radiogroup" aria-label="Adet">
@@ -92,7 +119,7 @@
   <main id="sayfa-galeri" class="sayfa" hidden>
     <h2 class="baslik">Galeri</h2>
     <div id="galeri" class="galeri"></div>
-    <p id="galeri-bos" class="bos">Henüz görsel yok.<br>Ürettiğin görseller burada saklanır.</p>
+    <p id="galeri-bos" class="bos">Henüz bir şey yok.<br>Ürettiğin fotoğraf ve videolar burada saklanır.</p>
   </main>
 
   <div class="alt">
@@ -106,13 +133,14 @@
 
 <div id="goruntuleyici" class="goruntuleyici" hidden role="dialog" aria-modal="true">
   <button id="g-kapat" class="ikon-buton kapat" aria-label="Kapat"><svg><use href="#i-kapat"/></svg></button>
-  <div class="g-resim"><img id="g-img" alt=""></div>
+  <div class="g-resim"><img id="g-img" alt=""><video id="g-video" controls loop playsinline hidden></video></div>
   <div class="g-alt">
     <p id="g-prompt" class="g-prompt"></p>
     <p id="g-bilgi" class="soluk kucuk"></p>
     <div class="g-butonlar">
       <button id="g-kaydet"><svg><use href="#i-indir"/></svg>Kaydet</button>
       <button id="g-paylas"><svg><use href="#i-paylas"/></svg>Paylaş</button>
+      <button id="g-canlandir"><svg><use href="#i-video"/></svg>Canlandır</button>
       <button id="g-tekrar"><svg><use href="#i-tekrar"/></svg>Tekrar kullan</button>
       <button id="g-sil" class="tehlike"><svg><use href="#i-sil"/></svg>Sil</button>
     </div>
