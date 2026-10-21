@@ -472,8 +472,8 @@ class VideoUretici:
                     device="cuda",
                 )[0] or prompt
             except Exception as e:
-                print("Prompt geliştirme başarısız, açıklama olduğu gibi kullanılıyor:", type(e).__name__, e)
-        print("Kullanılan açıklama:", gelismis)
+                # Gizlilik: hata mesajı açıklamadan parça içerebilir; yalnızca türü yazılır.
+                print("Prompt geliştirme başarısız, açıklama olduğu gibi kullanılıyor:", type(e).__name__)
 
         ortak = dict(prompt=gelismis, num_frames=kare, frame_rate=float(VIDEO_FPS), return_dict=False, **ek)
 
