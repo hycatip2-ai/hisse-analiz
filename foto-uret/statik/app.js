@@ -120,7 +120,7 @@ const ORANLAR = {
 };
 const VMODEL_IPUCU = {
   ltx: "Sesli, 5-10 sn, en yüksek çözünürlük; fotoğraftan video da üretir. ~2-5 dk.",
-  wan: "İnsan yüzleri daha doğal. Yalnızca yazıdan, sessiz, 5 sn, 720p. Ayrıntılı yaz. ~3-5 dk.",
+  wan: "İnsan yüzleri daha doğal. Yalnızca yazıdan, sessiz, 5 sn, 720p. Ayrıntılı yaz. ~1-3 dk.",
 };
 const VMODEL_ADI = { ltx: "LTX-2.5", wan: "Wan 2.2 (hızlı)" };
 const BOYUT_ADI = { kare: "Kare", dikey: "Dikey", yatay: "Yatay", duvar: "Duvar kâğıdı" };
