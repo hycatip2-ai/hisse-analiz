@@ -75,3 +75,9 @@ jobs:
             exit 0
           fi
           modal run foto.py::video_modeli_indir
+
+      # Wan 2.2 (~69 GB, BF16) ve hızlandırıcı LoRA'sı; açık modeller, token gerekmez.
+      - name: Wan modelini indir
+        if: steps.kontrol.outputs.hazir == 'true'
+        working-directory: foto-uret
+        run: modal run foto.py::wan_modeli_indir

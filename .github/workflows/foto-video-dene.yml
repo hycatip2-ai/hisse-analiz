@@ -7,12 +7,14 @@ name: Foto Üret - Video denemesi
 #   islem=tani2: rehberli tam model ile aynı teşhis (~1 $)
 #   islem=qwen: Qwen-Image-2.1 fotoğraf/referans denemesi (~0,3 $)
 #   islem=foto: uygulamadaki Qwen fotoğraf yolunu dener (~0,05 $)
-#   islem=karsilastir: Qwen vs FLUX.2 [dev], LTX-2.5 vs Wan 2.2 karşılaştırması (~1,5-2 $)
+#   islem=karsilastir: Qwen vs FLUX.2 [dev], LTX-2.5 vs Wan 2.2 karşılaştırması (~2,5 $)
+#   islem=flux: yalnızca Qwen vs FLUX.2 [dev] fotoğraf karşılaştırması (~0,5 $)
+#   islem=wan: uygulamadaki hızlı Wan 2.2 ile 3 video (~0,5-1 $)
 on:
   workflow_dispatch:
     inputs:
       islem:
-        description: "dene, tani, tani2, qwen, foto veya karsilastir"
+        description: "dene, tani, tani2, qwen, foto, karsilastir, flux veya wan"
         default: "dene"
 
 jobs:
@@ -85,3 +87,23 @@ jobs:
         with:
           name: karsilastir
           path: foto-uret/araclar/tani-cikti/
+      - name: FLUX.2 fotoğraf karşılaştırması
+        if: inputs.islem == 'flux'
+        working-directory: foto-uret/araclar
+        timeout-minutes: 55
+        run: modal run karsilastir.py --bolum foto
+      - uses: actions/upload-artifact@v4
+        if: inputs.islem == 'flux'
+        with:
+          name: flux
+          path: foto-uret/araclar/tani-cikti/
+      - name: Hızlı Wan denemesi
+        if: inputs.islem == 'wan'
+        working-directory: foto-uret
+        timeout-minutes: 55
+        run: modal run foto.py::wan_dene
+      - uses: actions/upload-artifact@v4
+        if: inputs.islem == 'wan'
+        with:
+          name: wan
+          path: foto-uret/tani-cikti/

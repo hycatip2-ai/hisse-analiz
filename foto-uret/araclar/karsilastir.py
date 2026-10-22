@@ -1,6 +1,7 @@
 """Model karşılaştırması: Qwen-Image-2.1 vs FLUX.2 [dev] (fotoğraf), LTX-2.5 vs Wan 2.2 (video).
 
-Çalıştırma (GPU kredisi harcar, ~1,5-2 $):  modal run karsilastir.py
+Çalıştırma (GPU kredisi harcar, ~2,5 $):  modal run karsilastir.py
+Yalnızca fotoğraflar (Qwen vs FLUX.2, ~0,5 $):  modal run karsilastir.py --bolum foto
 Mevcut modeller uygulamadaki yayındaki sınıflarla (aynı ayarlarla) çalıştırılır; Wan ve FLUX
 belgelerdeki önerilen ayarlarla. Çıktılar ./tani-cikti/ klasörüne yazılır.
 """
@@ -160,15 +161,18 @@ def _yayindaki_sonuc(cagri, anahtar):
 
 
 @app.local_entrypoint()
-def main():
+def main(bolum: str = "hepsi"):
+    video_de = bolum != "foto"
     cikti = Path("tani-cikti")
     cikti.mkdir(exist_ok=True)
     t0 = time.time()
 
     # 1) İndirmeler (GPU'suz) ve uygulamadaki modellerin işleri aynı anda başlar
-    wan_ind, flux_ind = wan_indir.spawn(), flux_indir.spawn()
+    flux_ind = flux_indir.spawn()
+    wan_ind = wan_indir.spawn() if video_de else None
     qwen = {ad: _yayindaki("QwenUretici", p, 1024, 1024, 1, 42, None, 1024) for ad, p in FOTO_PROMPTLAR.items()}
-    ltx = {ad: _yayindaki("VideoUretici", p, 1920, 1088, 121, 42, None) for ad, p in VIDEO_PROMPTLAR.items()}
+    ltx = ({ad: _yayindaki("VideoUretici", p, 1920, 1088, 121, 42, None) for ad, p in VIDEO_PROMPTLAR.items()}
+           if video_de else {})
 
     qwen_sonuc = {ad: _yayindaki_sonuc(*c)[0]["jpeg"] for ad, c in qwen.items()}
     for ad, jpeg in qwen_sonuc.items():
@@ -187,13 +191,16 @@ def main():
     else:
         isler = [(ad, p, None) for ad, p in FOTO_PROMPTLAR.items()] + [("referans", REFERANS_PROMPT, qwen_sonuc["portre"])]
         flux_cagri = Flux().uret.spawn(isler)
-    wan_ind.get()
-    wan = {ad: Wan().uret.spawn(p) for ad, p in VIDEO_PROMPTLAR.items()}
+    wan = {}
+    if video_de:
+        wan_ind.get()
+        wan = {ad: Wan().uret.spawn(p) for ad, p in VIDEO_PROMPTLAR.items()}
 
     for ad, (cagri, anahtar) in ltx.items():
         v = _yayindaki_sonuc(cagri, anahtar)
         (cikti / f"ltx_{ad}.mp4").write_bytes(v["mp4"])
-    print(f"LTX bitti: {time.time() - t0:.0f} sn")
+    if ltx:
+        print(f"LTX bitti: {time.time() - t0:.0f} sn")
 
     if flux_cagri:
         f = flux_cagri.get()

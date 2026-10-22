@@ -8,7 +8,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/static/icon-192.png">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-<link rel="stylesheet" href="/static/style.css?v=12">
+<link rel="stylesheet" href="/static/style.css?v=13">
 <title>Foto Stüdyo</title>
 </head>
 <body>
@@ -59,6 +59,13 @@
       <button data-v="video"><svg><use href="#i-video"/></svg>Video</button>
     </div>
 
+    <div class="sadece-video">
+      <div class="segment" id="vmodel" role="radiogroup" aria-label="Video modeli">
+        <button data-v="ltx" class="secili">LTX · sesli</button><button data-v="wan">Wan · gerçekçi insan</button>
+      </div>
+      <p class="ipucu" id="vmodel-ipucu"></p>
+    </div>
+
     <div class="kart">
       <label class="etiket" for="prompt">Ne görmek istiyorsun?</label>
       <textarea id="prompt" rows="4" maxlength="2000" placeholder="Örn: a red vintage car on a rainy street at night"></textarea>
@@ -73,7 +80,7 @@
       <p class="ipucu" id="referans-ipucu">Bir kişi, ürün veya fotoğraf ekleyip ne yapılacağını yaz: "bu kadını sahilde göster", "arka planı değiştir". Sadece kendi fotoğraflarını veya izni olan kişilerinkini kullan.</p>
     </div>
 
-    <div class="kart baslangic sadece-video">
+    <div class="kart baslangic sadece-video sadece-ltx">
       <div class="etiket">Başlangıç fotoğrafı <span class="normal">(isteğe bağlı)</span></div>
       <div id="baslangic-bos">
         <label class="ikincil-buton"><input id="baslangic-dosya" type="file" accept="image/*" hidden><svg><use href="#i-foto"/></svg>Telefondan seç</label>
@@ -99,7 +106,7 @@
       <button data-v="duvar" class="sadece-foto"><span class="oran duvar"></span>Duvar</button>
     </div>
 
-    <div class="sadece-video">
+    <div class="sadece-video sadece-ltx">
       <div class="etiket bosluk">Süre</div>
       <div class="segment" id="sure" role="radiogroup" aria-label="Süre">
         <button data-v="5" class="secili">5 saniye</button><button data-v="10">10 saniye</button>
@@ -229,6 +236,6 @@
 
 <div id="bildirim" class="bildirim" hidden></div>
 
-<script src="/static/app.js?v=12"></script>
+<script src="/static/app.js?v=13"></script>
 </body>
 </html>

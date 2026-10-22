@@ -205,7 +205,8 @@ textarea { resize: none; min-height: 104px; }
 
 /* Fotoğraf / Video seçimi */
 #uygulama:not(.tur-video) .sadece-video,
-#uygulama.tur-video .sadece-foto { display: none !important; }
+#uygulama.tur-video .sadece-foto,
+#uygulama.vmodel-wan .sadece-ltx { display: none !important; }
 .tur-secici { margin-bottom: 14px; }
 .tur-secici button { padding: 11px 4px; font-size: .95rem; }
 .etiket .normal { text-transform: none; letter-spacing: 0; font-weight: 400; }
@@ -311,3 +312,4 @@ textarea { resize: none; min-height: 104px; }
 .referans button svg { width: 12px; height: 12px; }
 .referans-ekle { flex: none; width: 64px; height: 64px; border-radius: 10px; border: 1px dashed var(--cizgi);
   background: var(--yuzey-2); display: grid; place-items: center; cursor: pointer; color: var(--soluk); }
+#vmodel-ipucu { margin: 6px 4px 14px; }

@@ -8,7 +8,10 @@
   1. aşamada tam (SFT) model rehberlikle (CFG + STG + negatif liste) yarım
   çözünürlükte üretir, 2. aşamada 2 kat büyütülüp distilled LoRA ile tam
   çözünürlükte (1920×1088'e kadar) iyileştirilir.
-- video_modeli_indir: Video modelini (~110 GB) ucuz CPU'da bir kez indirir.
+- WanUretici: GPU (H200) üzerinde Wan 2.2 (A14B) ile yazıdan sessiz video üretir. Lightning
+  (lightx2v) hızlandırıcı LoRA'sıyla 40 adım yerine 4 adım: ~17 dk yerine birkaç dakika.
+  Karşılaştırmada insan yüzlerini LTX'ten daha doğal üretti.
+- video_modeli_indir / wan_modeli_indir: Video modellerini ucuz CPU'da bir kez indirir.
 - arastir: Araştırma asistanı (arastirma.py); ücretsiz OpenRouter modeli + Tavily araması,
   GPU'suz çalışır.
 - web: Telefon uygulamasını (PWA) ve API'yi sunar; ucuz CPU üzerinde çalışır,
@@ -43,6 +46,21 @@ VIDEO_INDIRME_HARIC = [
     "diffusion_decoder/*",
     "temporal_latent_upsampler/*",
 ]
+# Wan 2.2 (Apache 2.0). BF16 kopyası resmi deponun (fp32, ~126 GB) yarısı; yükleme hızlanır.
+WAN_MODEL_ID = "linoyts/Wan2.2-T2V-A14B-Diffusers-BF16"
+WAN_YOL = f"{VIDEO_DIR}/wan2.2-t2v-bf16"
+ESKI_WAN_YOL = f"{VIDEO_DIR}/wan2.2-t2v-a14b"  # karşılaştırmada indirilen fp32 kopya
+WAN_LORA_ID = "Kijai/WanVideo_comfy"
+WAN_LORA = "Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank128_bf16.safetensors"
+WAN_FPS = 16
+WAN_KARE = 81  # 5 sn; model 81 kareyle eğitildi, daha uzunu bozuluyor
+WAN_BOYUTLARI = {"kare": (960, 960), "dikey": (720, 1280), "yatay": (1280, 720)}
+WAN_NEGATIF = (
+    "Bright tones, overexposed, static, blurred details, subtitles, style, works, paintings, images, static, "
+    "overall gray, worst quality, low quality, JPEG compression residue, ugly, incomplete, extra fingers, "
+    "poorly drawn hands, poorly drawn faces, deformed, disfigured, misshapen limbs, fused fingers, still "
+    "picture, messy background, three legs, many people in the background, walking backwards"
+)
 STATIK_DIR = "/statik"
 OTURUM_SURESI = 90 * 24 * 3600  # 90 gün
 VIDEO_FPS = 24
@@ -82,7 +100,8 @@ video_gpu_image = modal.Image.debian_slim(python_version="3.12").pip_install(
     "protobuf",
     "huggingface_hub",
     "torchvision",  # Gemma4Processor (prompt geliştirme) bunu içe aktarıyor
-    "peft",  # 2. aşama LoRA'sı
+    "peft",  # 2. aşama LoRA'sı / Wan hızlandırıcı LoRA'sı
+    "ftfy",  # Wan açıklama temizleme
 )
 indirme_image = modal.Image.debian_slim(python_version="3.12").pip_install("huggingface_hub")
 web_image = (
@@ -532,6 +551,102 @@ class VideoUretici:
         return {"mp4": mp4, "tohum": tohum, "gelismis_prompt": gelismis}
 
 
+def _wan_modelini_indir():
+    from huggingface_hub import hf_hub_download, snapshot_download
+
+    snapshot_download(WAN_MODEL_ID, local_dir=WAN_YOL)
+    hf_hub_download(WAN_LORA_ID, WAN_LORA, local_dir=f"{WAN_YOL}/lora")
+
+
+@app.function(image=indirme_image, volumes={VIDEO_DIR: video_modeller}, timeout=3 * 3600)
+def wan_modeli_indir():
+    """Wan 2.2'yi (~69 GB) ve hızlandırıcı LoRA'yı GPU'suz makinede indirir; zaten varsa hızlıca geçer."""
+    import shutil
+
+    _wan_modelini_indir()
+    shutil.rmtree(ESKI_WAN_YOL, ignore_errors=True)
+    video_modeller.commit()
+    print("Wan modeli hazır:", WAN_YOL)
+
+
+@app.cls(
+    gpu="H200",
+    image=video_gpu_image,
+    volumes={VIDEO_DIR: video_modeller},
+    scaledown_window=120,
+    max_containers=1,
+    timeout=1800,
+)
+class WanUretici:
+    @modal.enter()
+    def yukle(self):
+        import traceback
+
+        self.hata = None
+        try:
+            self._yukle()
+        except Exception:
+            self.hata = traceback.format_exc()
+            print(self.hata)
+
+    def _yukle(self):
+        import torch
+        from diffusers import AutoencoderKLWan, WanPipeline
+
+        _wan_modelini_indir()
+        vae = AutoencoderKLWan.from_pretrained(WAN_YOL, subfolder="vae", torch_dtype=torch.float32)
+        self.pipe = WanPipeline.from_pretrained(WAN_YOL, vae=vae, torch_dtype=torch.bfloat16).to("cuda")
+        # Lightning (lightx2v adım damıtma) LoRA'sı iki uzmana da: yüksek gürültü 3, düşük gürültü 1
+        # ağırlıkla (Hugging Face'teki zerogpu-aoti/wan2-2-fp8da-aoti tarifi). Kalıcı olarak
+        # birleştirilir; her adımda LoRA hesabı yapılmaz.
+        lora = f"{WAN_YOL}/lora"
+        self.pipe.load_lora_weights(lora, weight_name=WAN_LORA, adapter_name="hizli")
+        self.pipe.load_lora_weights(lora, weight_name=WAN_LORA, adapter_name="hizli_2",
+                                    load_into_transformer_2=True)
+        self.pipe.set_adapters(["hizli", "hizli_2"], adapter_weights=[1.0, 1.0])
+        self.pipe.fuse_lora(adapter_names=["hizli"], lora_scale=3.0, components=["transformer"])
+        self.pipe.fuse_lora(adapter_names=["hizli_2"], lora_scale=1.0, components=["transformer_2"])
+        self.pipe.unload_lora_weights()
+
+    def _hata_varsa(self):
+        if self.hata:
+            raise RuntimeError("Wan modeli yüklenemedi: " + self.hata.strip().splitlines()[-1])
+
+    @modal.method()
+    def isit(self) -> bool:
+        self._hata_varsa()
+        return True
+
+    @modal.method()
+    def uret(self, anahtar: str):
+        return _teslim_calistir(anahtar, self._uret)
+
+    def _uret(self, prompt: str, genislik: int, yukseklik: int, tohum: int | None):
+        self._hata_varsa()
+        import tempfile
+
+        import torch
+        from diffusers.utils import export_to_video
+
+        if tohum is None:
+            tohum = random.randint(0, 2**31 - 1)
+        kareler = self.pipe(
+            prompt=prompt,
+            negative_prompt=WAN_NEGATIF,
+            width=genislik,
+            height=yukseklik,
+            num_frames=WAN_KARE,
+            num_inference_steps=4,
+            guidance_scale=1.0,  # yüksek gürültü uzmanı: rehbersiz (LoRA rehberliği damıttı)
+            guidance_scale_2=3.0,  # düşük gürültü uzmanı: hafif rehberlik ayrıntıyı artırıyor
+            generator=torch.Generator("cuda").manual_seed(tohum),
+        ).frames[0]
+        with tempfile.NamedTemporaryFile(suffix=".mp4") as f:
+            export_to_video(kareler, f.name, fps=WAN_FPS)
+            mp4 = Path(f.name).read_bytes()
+        return {"mp4": mp4, "tohum": tohum, "gelismis_prompt": None}
+
+
 def _sayac_anahtari() -> str:
     """Günlük ücretsiz istek sayacının anahtarı (OpenRouter günü UTC'ye göre sayar)."""
     from datetime import datetime, timezone
@@ -597,6 +712,31 @@ def foto_dene():
 
 
 @app.local_entrypoint()
+def wan_dene():
+    """Wan 2.2 hızlı modunu uygulamadaki yoldan dener: modal run foto.py::wan_dene"""
+    import time
+
+    Path("tani-cikti").mkdir(exist_ok=True)
+    bas = time.time()
+    WanUretici().isit.remote()
+    print(f"Wan yüklendi: {time.time() - bas:.0f} sn")
+    denemeler = {
+        "insan": ("A young woman with curly red hair laughs and talks to a friend at a busy cafe table, "
+                  "close-up, natural window light", "yatay"),
+        "hareket": ("A golden retriever runs along a beach at sunset, splashing through shallow waves, "
+                    "the camera tracking alongside", "yatay"),
+        "dikey": ("An elderly man in a wool coat walks through a snowy park, turns to the camera and smiles, "
+                  "soft winter light", "dikey"),
+    }
+    for ad, (prompt, boyut) in denemeler.items():
+        g, y = WAN_BOYUTLARI[boyut]
+        bas = time.time()
+        sonuc = _uzak(WanUretici().uret, prompt, g, y, 42)
+        print(f"Wan {ad}: {g}x{y}, {time.time() - bas:.0f} sn")
+        Path(f"tani-cikti/wan_hizli_{ad}.mp4").write_bytes(sonuc["mp4"])
+
+
+@app.local_entrypoint()
 def video_dene():
     """Kısa, düşük çözünürlüklü bir video üretip ölçer: modal run foto.py::video_dene"""
     import time
@@ -655,7 +795,7 @@ def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None
     istek uzun sürmez (Modal 150 sn'yi aşan istekleri yönlendirir ve
     tarayıcıda "invalid function call" hatası çıkabiliyordu).
 
-    baslat(is_turu, *args) -> iş kimliği; is_turu: foto, video, isit_foto, isit_video
+    baslat(is_turu, *args) -> iş kimliği; is_turu: foto, qwen, video, wan, arastir, isit_*
     sonuc_al(kimlik) -> sonuç; hazır değilse TimeoutError
     """
     import base64
@@ -696,6 +836,7 @@ def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None
     class Isit(BaseModel):
         tur: Literal["foto", "video"] = "foto"
         kalite: str = "eniyi"
+        video_model: Literal["ltx", "wan"] = "ltx"
 
     class Istek(BaseModel):
         tur: Literal["foto", "video"] = "foto"
@@ -706,6 +847,8 @@ def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None
         adet: int = Field(default=1, ge=1, le=4)
         tohum: int | None = Field(default=None, ge=0, le=2**31 - 5)
         sure: Literal[5, 10] = 5
+        # Video modeli: ltx = LTX-2.5 (sesli, fotoğraftan da), wan = Wan 2.2 hızlı (yazıdan, sessiz, 5 sn)
+        video_model: Literal["ltx", "wan"] = "ltx"
         resim: str | None = Field(default=None, max_length=12_000_000)  # base64 JPEG/PNG
         # Fotoğraf için referans görseller (base64); varsa Qwen-Image-2.1 kullanılır.
         referanslar: list[str] = Field(default_factory=list, max_length=10)
@@ -757,6 +900,8 @@ def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None
         i = i or Isit()
         if i.tur == "foto" and qwen_mu(i.kalite, False):
             return {"is": baslat("isit_qwen")}
+        if i.tur == "video" and i.video_model == "wan":
+            return {"is": baslat("isit_wan")}
         return {"is": baslat("isit_" + i.tur)}
 
     @api.post("/api/uret", dependencies=[Depends(oturum_kontrol)])
@@ -772,8 +917,16 @@ def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None
                     resim = base64.b64decode(istek.resim, validate=True)
                 except binascii.Error:
                     raise HTTPException(status_code=400, detail="Fotoğraf okunamadı")
-            genislik, yukseklik = VIDEO_BOYUTLARI.get(istek.boyut, VIDEO_BOYUTLARI["yatay"])
-            kimlik = baslat("video", prompt, genislik, yukseklik, VIDEO_KARELERI[istek.sure], istek.tohum, resim)
+            if istek.video_model == "wan":
+                if resim:
+                    raise HTTPException(status_code=400, detail="Wan yalnızca yazıdan video üretir; "
+                                        "fotoğraftan video için LTX'i seç.")
+                genislik, yukseklik = WAN_BOYUTLARI.get(istek.boyut, WAN_BOYUTLARI["yatay"])
+                kimlik = baslat("wan", prompt, genislik, yukseklik, istek.tohum)
+            else:
+                genislik, yukseklik = VIDEO_BOYUTLARI.get(istek.boyut, VIDEO_BOYUTLARI["yatay"])
+                kimlik = baslat("video", prompt, genislik, yukseklik, VIDEO_KARELERI[istek.sure], istek.tohum,
+                                resim)
         else:
             prompt = son_prompt(istek.prompt, istek.mod)
             if sum(len(r) for r in istek.referanslar) > 40_000_000:
@@ -852,6 +1005,8 @@ def _modal_baslat(is_turu: str, *args) -> str:
         "isit_qwen": (QwenUretici, "isit"),
         "video": (VideoUretici, "uret"),
         "isit_video": (VideoUretici, "isit"),
+        "wan": (WanUretici, "uret"),
+        "isit_wan": (WanUretici, "isit"),
         "arastir": (None, None),
     }[is_turu]
     fn = arastir if is_turu == "arastir" else getattr(sinif(), metot)

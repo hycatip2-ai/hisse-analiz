@@ -6,15 +6,15 @@ const $$ = (s) => document.querySelectorAll(s);
 // GPU 2 dk kullanılmazsa kapanır (foto.py: scaledown_window=120).
 const GPU_UYKU_MS = 110 * 1000;
 
-const ayar = { tur: "foto", mod: "serbest", boyut: "kare", adet: 1, kalite: "eniyi", sure: 5 };
+const ayar = { tur: "foto", mod: "serbest", boyut: "kare", adet: 1, kalite: "eniyi", sure: 5, vmodel: "ltx" };
 let modlar = [];
-// GPU'lar: foto = Z-Image (Hızlı), qwen = Qwen-Image-2.1 (En iyi / HD / referanslı), video = LTX
-const sonGpu = { foto: 0, qwen: 0, video: 0 };
-const isiniyor = { foto: false, qwen: false, video: false };
+// GPU'lar: foto = Z-Image (Hızlı), qwen = Qwen-Image-2.1 (En iyi / HD / referanslı), video = LTX, wan = Wan 2.2
+const sonGpu = { foto: 0, qwen: 0, video: 0, wan: 0 };
+const isiniyor = { foto: false, qwen: false, video: false, wan: false };
 let referanslar = []; // fotoğraf için referans görseller (Blob)
 const REFERANS_SINIRI = 10;
 function gpuAnahtari() {
-  if (ayar.tur === "video") return "video";
+  if (ayar.tur === "video") return ayar.vmodel === "wan" ? "wan" : "video";
   return referanslar.length || ayar.kalite !== "hizli" ? "qwen" : "foto";
 }
 let uretiliyor = false;
@@ -114,7 +114,13 @@ async function resimBase64(blob, enBuyuk = 1280) {
 const ORANLAR = {
   foto: { kare: "1 / 1", dikey: "4 / 7", yatay: "7 / 4", duvar: "23 / 50" },
   video: { kare: "1 / 1", dikey: "17 / 30", yatay: "30 / 17" },
+  wan: { kare: "1 / 1", dikey: "9 / 16", yatay: "16 / 9" },
 };
+const VMODEL_IPUCU = {
+  ltx: "Sesli, 5-10 sn, en yüksek çözünürlük; fotoğraftan video da üretir. ~2-5 dk.",
+  wan: "İnsan yüzleri daha doğal. Yalnızca yazıdan, sessiz, 5 sn, 720p. Ayrıntılı yaz. ~3-5 dk.",
+};
+const VMODEL_ADI = { ltx: "LTX-2.5", wan: "Wan 2.2 (hızlı)" };
 const BOYUT_ADI = { kare: "Kare", dikey: "Dikey", yatay: "Yatay", duvar: "Duvar kâğıdı" };
 const IPUCU = {
   foto: ["Örn: a red vintage car on a rainy street at night", "İngilizce yazarsan daha iyi sonuç alırsın."],
@@ -200,6 +206,7 @@ segmentKur("boyut", "boyut");
 segmentKur("adet", "adet", true);
 segmentKur("kalite", "kalite", false, sunucuCiz);
 segmentKur("sure", "sure", true);
+segmentKur("vmodel", "vmodel", false, turGuncelle);
 
 function turSec(tur) {
   segmentSec("tur", "tur", tur);
@@ -208,9 +215,13 @@ function turSec(tur) {
 function turGuncelle() {
   const video = ayar.tur === "video";
   $("#uygulama").classList.toggle("tur-video", video);
+  $("#uygulama").classList.toggle("vmodel-wan", video && ayar.vmodel === "wan");
+  $("#vmodel-ipucu").textContent = VMODEL_IPUCU[ayar.vmodel];
   if (video && ayar.boyut === "duvar") segmentSec("boyut", "boyut", "dikey");
   $("#prompt").placeholder = IPUCU[ayar.tur][0];
-  $("#prompt-ipucu").textContent = IPUCU[ayar.tur][1];
+  $("#prompt-ipucu").textContent = video && ayar.vmodel === "wan"
+    ? "Açıklama olduğu gibi kullanılır: kişiyi, hareketi, ortamı ve ışığı ayrıntılı yaz. İngilizce daha iyi sonuç verir."
+    : IPUCU[ayar.tur][1];
   $("#uret span").textContent = video ? "Video üret" : "Üret";
   sunucuCiz();
 }
@@ -302,7 +313,8 @@ async function isit() {
   isiniyor[t] = true;
   sunucuCiz();
   try {
-    const d = await api("isit", { tur: ayar.tur, kalite: t === "qwen" ? (ayar.kalite === "hd" ? "hd" : "eniyi") : "hizli" });
+    const d = await api("isit", { tur: ayar.tur, kalite: t === "qwen" ? (ayar.kalite === "hd" ? "hd" : "eniyi") : "hizli",
+                                  video_model: ayar.vmodel });
     await isBekle(d.is);
     sonGpu[t] = Date.now();
   } catch {}
@@ -343,10 +355,11 @@ $("#uret").addEventListener("click", async () => {
   if (!prompt) { bildir("Önce ne görmek istediğini yaz."); $("#prompt").focus(); return; }
   if (uretiliyor) return;
   const video = ayar.tur === "video";
+  const wan = video && ayar.vmodel === "wan";
   const tohumMetin = $("#tohum").value.trim();
   const istek = {
     tur: ayar.tur, prompt, mod: ayar.mod, boyut: ayar.boyut,
-    adet: video ? 1 : ayar.adet, kalite: ayar.kalite, sure: ayar.sure,
+    adet: video ? 1 : ayar.adet, kalite: ayar.kalite, sure: wan ? 5 : ayar.sure, video_model: ayar.vmodel,
     tohum: tohumMetin === "" ? null : Number(tohumMetin),
   };
   const gpu = gpuAnahtari();
@@ -361,7 +374,7 @@ $("#uret").addEventListener("click", async () => {
   for (let i = 0; i < istek.adet; i++) {
     const d = document.createElement("div");
     d.className = "iskelet";
-    d.style.aspectRatio = refSayisi ? "1 / 1" : ORANLAR[istek.tur][istek.boyut];
+    d.style.aspectRatio = refSayisi ? "1 / 1" : ORANLAR[wan ? "wan" : istek.tur][istek.boyut];
     sonuclar.appendChild(d);
   }
   const durum = $("#durum");
@@ -378,7 +391,7 @@ $("#uret").addEventListener("click", async () => {
   sonuclar.scrollIntoView({ behavior: "smooth", block: "nearest" });
 
   try {
-    if (video && baslangicResim) istek.resim = await resimBase64(baslangicResim);
+    if (video && !wan && baslangicResim) istek.resim = await resimBase64(baslangicResim);
     if (refSayisi) istek.referanslar = await Promise.all(referanslar.map((r) => resimBase64(r, 1536)));
     const baslangic = await api("uret", istek);
     const d = { ...baslangic, ...(await isBekle(baslangic.is, video ? 30 : 10)) };
@@ -389,12 +402,12 @@ $("#uret").addEventListener("click", async () => {
     const ortak = {
       tur: istek.tur, prompt, mod: istek.mod, boyut: istek.boyut, kalite: istek.kalite,
       genislik: d.genislik, yukseklik: d.yukseklik, tarih: Date.now(),
-      model: video ? "LTX-2.5" : gpu === "qwen" ? "Qwen-Image-2.1" : "Z-Image-Turbo",
+      model: video ? VMODEL_ADI[ayar.vmodel] : gpu === "qwen" ? "Qwen-Image-2.1" : "Z-Image-Turbo",
       referansSayisi: refSayisi,
     };
     const kayitlar = video
       ? [{ ...ortak, id: Date.now() + "-v" + d.tohum, blob: base64Blob(d.video, "video/mp4"), tohum: d.tohum,
-           sure: istek.sure, fotodan: !!istek.resim, gelismisPrompt: d.gelismis_prompt || null }]
+           sure: istek.sure, fotodan: !!istek.resim, vmodel: istek.video_model, gelismisPrompt: d.gelismis_prompt || null }]
       : d.gorseller.map((g) => ({ ...ortak, id: Date.now() + "-" + g.tohum, blob: base64Blob(g.veri, "image/jpeg"), tohum: g.tohum,
                                     genislik: g.genislik || d.genislik, yukseklik: g.yukseklik || d.yukseklik }));
     for (const k of kayitlar) {
@@ -746,6 +759,7 @@ $$("#menu [data-is]").forEach((b) => b.addEventListener("click", async () => {
   } else if (is === "canlandir") {
     await hepsiniKapat();
     baslangicAyarla(k.blob);
+    segmentSec("vmodel", "vmodel", "ltx"); // fotoğraftan video yalnızca LTX'te
     turSec("video");
     segmentSec("boyut", "boyut", k.boyut === "duvar" ? "dikey" : k.boyut);
     modSec("serbest"); // stil zaten fotoğrafta var
@@ -769,6 +783,7 @@ $$("#menu [data-is]").forEach((b) => b.addEventListener("click", async () => {
     segmentSec("kalite", "kalite", ["eniyi", "hd"].includes(k.kalite) ? k.kalite : "hizli");
     segmentSec("adet", "adet", 1);
     if (k.sure) segmentSec("sure", "sure", k.sure);
+    if (k.tur === "video") { segmentSec("vmodel", "vmodel", k.vmodel || "ltx"); turGuncelle(); }
     if (k.tur !== "video") baslangicAyarla(null);
     sekmeAc("uret");
     bildir("Ayarlar yüklendi. Açıklamayı değiştirip tekrar üretebilirsin.");
