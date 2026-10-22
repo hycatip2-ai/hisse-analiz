@@ -626,7 +626,7 @@ class WanUretici:
         import tempfile
 
         import torch
-        from diffusers.utils import export_to_video
+        from diffusers.utils import encode_video
 
         if tohum is None:
             tohum = random.randint(0, 2**31 - 1)
@@ -642,7 +642,7 @@ class WanUretici:
             generator=torch.Generator("cuda").manual_seed(tohum),
         ).frames[0]
         with tempfile.NamedTemporaryFile(suffix=".mp4") as f:
-            export_to_video(kareler, f.name, fps=WAN_FPS)
+            encode_video(kareler, fps=WAN_FPS, output_path=f.name)
             mp4 = Path(f.name).read_bytes()
         return {"mp4": mp4, "tohum": tohum, "gelismis_prompt": None}
 
