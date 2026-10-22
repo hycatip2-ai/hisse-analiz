@@ -9,13 +9,13 @@ const GPU_UYKU_MS = 110 * 1000;
 const ayar = { tur: "foto", mod: "serbest", boyut: "kare", adet: 1, kalite: "eniyi", sure: 5, vmodel: "ltx" };
 let modlar = [];
 // GPU'lar: foto = Z-Image (Hızlı), qwen = Qwen-Image-2.1 (En iyi / HD / referanslı), flux = FLUX.2 [dev],
-// video = LTX, wan = Wan 2.2
-const sonGpu = { foto: 0, qwen: 0, flux: 0, video: 0, wan: 0 };
-const isiniyor = { foto: false, qwen: false, flux: false, video: false, wan: false };
+// video = LTX, wan = Wan 2.2 yazıdan, wanfoto = Wan 2.2 fotoğraftan (ayrı GPU)
+const sonGpu = { foto: 0, qwen: 0, flux: 0, video: 0, wan: 0, wanfoto: 0 };
+const isiniyor = { foto: false, qwen: false, flux: false, video: false, wan: false, wanfoto: false };
 let referanslar = []; // fotoğraf için referans görseller (Blob)
 const REFERANS_SINIRI = 10;
 function gpuAnahtari() {
-  if (ayar.tur === "video") return ayar.vmodel === "wan" ? "wan" : "video";
+  if (ayar.tur === "video") return ayar.vmodel === "wan" ? (baslangicResim ? "wanfoto" : "wan") : "video";
   if (ayar.kalite === "flux") return "flux";
   return referanslar.length || ayar.kalite !== "hizli" ? "qwen" : "foto";
 }
@@ -119,8 +119,8 @@ const ORANLAR = {
   wan: { kare: "1 / 1", dikey: "9 / 16", yatay: "16 / 9" },
 };
 const VMODEL_IPUCU = {
-  ltx: "Sesli, 5-10 sn, en yüksek çözünürlük; fotoğraftan video da üretir. ~2-5 dk.",
-  wan: "İnsan yüzleri daha doğal. Yalnızca yazıdan, sessiz, 5 sn, 720p. Ayrıntılı yaz. ~1-3 dk.",
+  ltx: "Sesli, 5-10 sn, en yüksek çözünürlük. ~2-5 dk.",
+  wan: "İnsan yüzleri daha doğal. Sessiz, 5 sn, 720p. Ayrıntılı yaz. ~1-3 dk.",
 };
 const VMODEL_ADI = { ltx: "LTX-2.5", wan: "Wan 2.2 (hızlı)" };
 const BOYUT_ADI = { kare: "Kare", dikey: "Dikey", yatay: "Yatay", duvar: "Duvar kâğıdı" };
@@ -237,6 +237,7 @@ function baslangicAyarla(blob) {
   if (blob) img.src = URL.createObjectURL(blob);
   $("#baslangic-bos").hidden = !!blob;
   $("#baslangic-dolu").hidden = !blob;
+  sunucuCiz(); // Wan'da fotoğraflı/fotoğrafsız farklı GPU
 }
 $("#baslangic-dosya").addEventListener("change", (e) => {
   const f = e.target.files[0];
@@ -316,7 +317,7 @@ async function isit() {
   sunucuCiz();
   try {
     const d = await api("isit", { tur: ayar.tur, kalite: t === "flux" ? "flux" : t === "qwen" ? (ayar.kalite === "hd" ? "hd" : "eniyi") : "hizli",
-                                  video_model: ayar.vmodel });
+                                  video_model: ayar.vmodel, fotodan: !!baslangicResim });
     await isBekle(d.is);
     sonGpu[t] = Date.now();
   } catch {}
@@ -393,7 +394,7 @@ $("#uret").addEventListener("click", async () => {
   sonuclar.scrollIntoView({ behavior: "smooth", block: "nearest" });
 
   try {
-    if (video && !wan && baslangicResim) istek.resim = await resimBase64(baslangicResim);
+    if (video && baslangicResim) istek.resim = await resimBase64(baslangicResim);
     if (refSayisi) istek.referanslar = await Promise.all(referanslar.map((r) => resimBase64(r, 1536)));
     const baslangic = await api("uret", istek);
     const d = { ...baslangic, ...(await isBekle(baslangic.is, video ? 30 : 10)) };
@@ -761,7 +762,6 @@ $$("#menu [data-is]").forEach((b) => b.addEventListener("click", async () => {
   } else if (is === "canlandir") {
     await hepsiniKapat();
     baslangicAyarla(k.blob);
-    segmentSec("vmodel", "vmodel", "ltx"); // fotoğraftan video yalnızca LTX'te
     turSec("video");
     segmentSec("boyut", "boyut", k.boyut === "duvar" ? "dikey" : k.boyut);
     modSec("serbest"); // stil zaten fotoğrafta var

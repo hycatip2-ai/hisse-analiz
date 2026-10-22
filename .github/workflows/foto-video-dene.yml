@@ -11,11 +11,12 @@ name: Foto Üret - Video denemesi
 #   islem=flux: yalnızca Qwen vs FLUX.2 [dev] fotoğraf karşılaştırması (~0,5 $)
 #   islem=wan: uygulamadaki hızlı Wan 2.2 ile 3 video (~0,5-1 $)
 #   islem=fluxdene: uygulamadaki FLUX.2 yolunu dener (yazıdan + referanslı, ~0,2 $)
+#   islem=canlandir: Qwen fotoğrafını Wan ve LTX ile canlandırır (2 fotoğraf, ~0,5-0,8 $)
 on:
   workflow_dispatch:
     inputs:
       islem:
-        description: "dene, tani, tani2, qwen, foto, karsilastir, flux, wan veya fluxdene"
+        description: "dene, tani, tani2, qwen, foto, karsilastir, flux, wan, fluxdene veya canlandir"
         default: "dene"
 
 jobs:
@@ -117,4 +118,14 @@ jobs:
         if: inputs.islem == 'fluxdene'
         with:
           name: fluxdene
+          path: foto-uret/tani-cikti/
+      - name: Canlandırma denemesi
+        if: inputs.islem == 'canlandir'
+        working-directory: foto-uret
+        timeout-minutes: 55
+        run: modal run foto.py::canlandir_dene
+      - uses: actions/upload-artifact@v4
+        if: inputs.islem == 'canlandir'
+        with:
+          name: canlandir
           path: foto-uret/tani-cikti/

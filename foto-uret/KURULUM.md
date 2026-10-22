@@ -84,11 +84,12 @@ Kodda değişiklik yapılıp `foto-uret/` klasörüne push edildiğinde deploy k
 ## Video
 
 - İki video modeli var:
-  - **LTX · sesli** (LTX-2.5): sesli, 5 veya 10 sn, 1080p'ye kadar; fotoğraftan video da üretir.
+  - **LTX · sesli** (LTX-2.5): sesli, 5 veya 10 sn, 1080p'ye kadar; yazıdan veya fotoğraftan.
   - **Wan · gerçekçi insan** (Wan 2.2, Apache 2.0): karşılaştırmada insan yüzlerini daha doğal üretti.
-    Yalnızca yazıdan, sessiz, 5 sn, 720p, saniyede 16 kare. Hızlandırıcı (Lightning) LoRA ile 40 yerine
+    Yazıdan veya fotoğraftan (Canlandır), sessiz, 5 sn, 720p, saniyede 16 kare. Hızlandırıcı (Lightning) LoRA ile 40 yerine
     4 adımda üretir (~1 dk + GPU uyanıyorsa ~1 dk; video başına ~0,10-0,15 $). Açıklama ayrıntılandırılmaz; kişiyi, hareketi, ortamı ve ışığı kendin ayrıntılı yaz.
-    Model (~70 GB) deploy sırasında "Wan modelini indir" adımında indirilir.
+    Yazıdan ve fotoğraftan video için iki ayrı model (~70 GB + ~70 GB) deploy sırasında "Wan modelini
+    indir" adımında indirilir; ikisi ayrı GPU'da çalışır.
 - Aşağıdaki maddeler LTX içindir.
 - Üret ekranında **Video**'yu seç. Yazıdan video üretebilir ya da bir başlangıç fotoğrafı
   ekleyebilirsin (telefondan seç veya Galeri'de bir fotoğrafı açıp **Canlandır**).
