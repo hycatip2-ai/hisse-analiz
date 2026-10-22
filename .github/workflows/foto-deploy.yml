@@ -81,3 +81,14 @@ jobs:
         if: steps.kontrol.outputs.hazir == 'true'
         working-directory: foto-uret
         run: modal run foto.py::wan_modeli_indir
+
+      # FLUX.2 [dev] (~110 GB); Hugging Face'te lisans onayı + HF_TOKEN gerekir.
+      - name: FLUX modelini indir
+        if: steps.kontrol.outputs.hazir == 'true'
+        working-directory: foto-uret
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "::warning::HF_TOKEN secret'ı eklenmemiş; FLUX modeli indirilemedi."
+            exit 0
+          fi
+          modal run foto.py::flux_modeli_indir

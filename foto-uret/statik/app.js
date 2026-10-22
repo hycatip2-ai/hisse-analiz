@@ -8,13 +8,15 @@ const GPU_UYKU_MS = 110 * 1000;
 
 const ayar = { tur: "foto", mod: "serbest", boyut: "kare", adet: 1, kalite: "eniyi", sure: 5, vmodel: "ltx" };
 let modlar = [];
-// GPU'lar: foto = Z-Image (Hızlı), qwen = Qwen-Image-2.1 (En iyi / HD / referanslı), video = LTX, wan = Wan 2.2
-const sonGpu = { foto: 0, qwen: 0, video: 0, wan: 0 };
-const isiniyor = { foto: false, qwen: false, video: false, wan: false };
+// GPU'lar: foto = Z-Image (Hızlı), qwen = Qwen-Image-2.1 (En iyi / HD / referanslı), flux = FLUX.2 [dev],
+// video = LTX, wan = Wan 2.2
+const sonGpu = { foto: 0, qwen: 0, flux: 0, video: 0, wan: 0 };
+const isiniyor = { foto: false, qwen: false, flux: false, video: false, wan: false };
 let referanslar = []; // fotoğraf için referans görseller (Blob)
 const REFERANS_SINIRI = 10;
 function gpuAnahtari() {
   if (ayar.tur === "video") return ayar.vmodel === "wan" ? "wan" : "video";
+  if (ayar.kalite === "flux") return "flux";
   return referanslar.length || ayar.kalite !== "hizli" ? "qwen" : "foto";
 }
 let uretiliyor = false;
@@ -204,7 +206,7 @@ function segmentSec(id, anahtar, deger) {
 segmentKur("tur", "tur", false, turGuncelle);
 segmentKur("boyut", "boyut");
 segmentKur("adet", "adet", true);
-segmentKur("kalite", "kalite", false, sunucuCiz);
+segmentKur("kalite", "kalite", false, referanslariCiz);
 segmentKur("sure", "sure", true);
 segmentKur("vmodel", "vmodel", false, turGuncelle);
 
@@ -264,7 +266,7 @@ function referanslariCiz() {
   });
   ekle.hidden = referanslar.length >= REFERANS_SINIRI;
   $("#referans-ipucu").textContent = referanslar.length
-    ? `${referanslar.length} referans. En iyi kalite modeli kullanılır; boyut son referanstan alınır.`
+    ? `${referanslar.length} referans. ${ayar.kalite === "flux" ? "FLUX" : "En iyi kalite modeli (Qwen)"} kullanılır; boyut son referanstan alınır.${ayar.kalite === "flux" ? "" : " İstediğini yapmazsa FLUX'u dene."}`
     : 'Bir kişi, ürün veya fotoğraf ekleyip ne yapılacağını yaz: "bu kadını sahilde göster", "arka planı değiştir". Sadece kendi fotoğraflarını veya izni olan kişilerinkini kullan.';
   sunucuCiz();
 }
@@ -313,7 +315,7 @@ async function isit() {
   isiniyor[t] = true;
   sunucuCiz();
   try {
-    const d = await api("isit", { tur: ayar.tur, kalite: t === "qwen" ? (ayar.kalite === "hd" ? "hd" : "eniyi") : "hizli",
+    const d = await api("isit", { tur: ayar.tur, kalite: t === "flux" ? "flux" : t === "qwen" ? (ayar.kalite === "hd" ? "hd" : "eniyi") : "hizli",
                                   video_model: ayar.vmodel });
     await isBekle(d.is);
     sonGpu[t] = Date.now();
@@ -402,7 +404,7 @@ $("#uret").addEventListener("click", async () => {
     const ortak = {
       tur: istek.tur, prompt, mod: istek.mod, boyut: istek.boyut, kalite: istek.kalite,
       genislik: d.genislik, yukseklik: d.yukseklik, tarih: Date.now(),
-      model: video ? VMODEL_ADI[ayar.vmodel] : gpu === "qwen" ? "Qwen-Image-2.1" : "Z-Image-Turbo",
+      model: video ? VMODEL_ADI[ayar.vmodel] : { qwen: "Qwen-Image-2.1", flux: "FLUX.2 [dev]" }[gpu] || "Z-Image-Turbo",
       referansSayisi: refSayisi,
     };
     const kayitlar = video
@@ -780,7 +782,7 @@ $$("#menu [data-is]").forEach((b) => b.addEventListener("click", async () => {
     $(".gelismis").open = true;
     modSec(k.mod);
     segmentSec("boyut", "boyut", k.boyut);
-    segmentSec("kalite", "kalite", ["eniyi", "hd"].includes(k.kalite) ? k.kalite : "hizli");
+    segmentSec("kalite", "kalite", ["eniyi", "hd", "flux"].includes(k.kalite) ? k.kalite : "hizli");
     segmentSec("adet", "adet", 1);
     if (k.sure) segmentSec("sure", "sure", k.sure);
     if (k.tur === "video") { segmentSec("vmodel", "vmodel", k.vmodel || "ltx"); turGuncelle(); }

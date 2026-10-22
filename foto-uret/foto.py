@@ -3,6 +3,8 @@
 - Uretici: GPU (L40S) üzerinde Z-Image-Turbo ile hızlı fotoğraf üretir ("Hızlı" kalite).
 - QwenUretici: GPU (L40S) üzerinde Qwen-Image-2.1 ile en kaliteli fotoğrafı üretir; 10'a kadar
   referans görselle (kişi/ürün kimliği korunur) üretim ve düzenleme yapar.
+- FluxUretici: GPU (H200) üzerinde FLUX.2 [dev] ile fotoğraf üretir ("FLUX" kalitesi); referansla
+  düzenlemede (kişiyi başka sahneye koyma) karşılaştırmada Qwen'den daha güvenilirdi.
 - VideoUretici: GPU (H200) üzerinde LTX-2.5 ile sesli video üretir
   (yazıdan veya bir fotoğraftan). Açıklama önce Gemma 4 ile ayrıntılandırılır;
   1. aşamada tam (SFT) model rehberlikle (CFG + STG + negatif liste) yarım
@@ -33,6 +35,10 @@ MODEL_ID = "Tongyi-MAI/Z-Image-Turbo"
 MODEL_DIR = "/modeller"
 QWEN_MODEL_ID = "Qwen/Qwen-Image-2.1"  # Qwen araştırma lisansı (kişisel kullanım)
 QWEN_YOL = f"{MODEL_DIR}/qwen-image-2.1"
+FLUX_MODEL_ID = "black-forest-labs/FLUX.2-dev"  # ticari olmayan lisans; HF'de onay + token gerekir
+FLUX_YOL = f"{MODEL_DIR}/flux2-dev"
+# Kök klasördeki tek parça kopyalar (diffusers alt klasörleri yeterli) ve örnek görseller indirilmez.
+FLUX_INDIRME_HARIC = ["flux2-dev.safetensors", "ae.safetensors", "*.png", "*.jpg"]
 VIDEO_MODEL_ID = "Lightricks/LTX-2.5-Diffusers"  # erişim için HF hesabı + token gerekir
 VIDEO_DIR = "/video-modeller"
 VIDEO_YOL = f"{VIDEO_DIR}/ltx-2.5"
@@ -87,6 +93,18 @@ qwen_image = (
         "huggingface_hub",
     )
     .env({"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"})
+)
+flux_image = modal.Image.debian_slim(python_version="3.12").pip_install(
+    "torch",
+    "torchvision",
+    "diffusers==0.41.0",
+    "transformers",
+    "accelerate",
+    "safetensors",
+    "pillow",
+    "huggingface_hub",
+    "sentencepiece",
+    "protobuf",
 )
 video_gpu_image = modal.Image.debian_slim(python_version="3.12").pip_install(
     "torch",
@@ -185,11 +203,19 @@ QWEN_BOYUTLARI = {
     "hd": {"kare": (1440, 1440), "dikey": (1088, 1920), "yatay": (1920, 1088), "duvar": (960, 2080)},
 }
 QWEN_COZUNURLUK = {"eniyi": 1024, "hd": 1440}  # referans varken boyut referansın oranından türetilir
+FLUX_BOYUTLARI = {"kare": (1024, 1024), "dikey": (768, 1344), "yatay": (1344, 768), "duvar": (736, 1600)}
 
 
 def qwen_mu(kalite: str, referans_var: bool) -> bool:
-    """Referans görsel varsa ya da en iyi kalite isteniyorsa Qwen, yoksa hızlı Z-Image kullanılır."""
-    return referans_var or kalite in QWEN_BOYUTLARI
+    """FLUX seçilmediyse: referans görsel varsa ya da en iyi kalite isteniyorsa Qwen, yoksa hızlı Z-Image."""
+    return kalite != "flux" and (referans_var or kalite in QWEN_BOYUTLARI)
+
+
+def referans_boyutu(genislik: int, yukseklik: int, piksel: int = 1024 * 1024) -> tuple[int, int]:
+    """Referansın oranını koruyarak ~1 MP, 16'nın katı boyut."""
+    oran = genislik / yukseklik
+    y = (piksel / oran) ** 0.5
+    return max(256, round(y * oran / 16) * 16), max(256, round(y / 16) * 16)
 
 
 def boyut_hesapla(boyut: str, kalite: str) -> tuple[int, int]:
@@ -334,6 +360,88 @@ class QwenUretici:
         for i in range(adet):
             torch.cuda.empty_cache()
             img = self.pipe(prompt=prompt, generator=torch.Generator("cuda").manual_seed(tohum + i), **ek).images[0]
+            buf = io.BytesIO()
+            img.convert("RGB").save(buf, format="JPEG", quality=92)
+            sonuc.append({"jpeg": buf.getvalue(), "tohum": tohum + i, "genislik": img.width, "yukseklik": img.height})
+        return sonuc
+
+
+def _flux_modelini_indir():
+    from huggingface_hub import snapshot_download
+
+    snapshot_download(FLUX_MODEL_ID, local_dir=FLUX_YOL, ignore_patterns=FLUX_INDIRME_HARIC,
+                      token=os.environ.get("HF_TOKEN", "").replace("yok", "") or None)
+
+
+@app.function(image=indirme_image, volumes={MODEL_DIR: modeller}, secrets=[hf_secret], timeout=3600)
+def flux_modeli_indir():
+    """FLUX.2 [dev]'i (~110 GB) GPU'suz makinede indirir; zaten varsa hızlıca geçer."""
+    _flux_modelini_indir()
+    modeller.commit()
+    print("FLUX modeli hazır:", FLUX_YOL)
+
+
+@app.cls(
+    gpu="H200",  # 32B transformer + 24B metin kodlayıcı (~112 GB) L40S'e sığmaz
+    image=flux_image,
+    volumes={MODEL_DIR: modeller},
+    secrets=[hf_secret],
+    scaledown_window=120,
+    max_containers=1,
+    timeout=900,
+)
+class FluxUretici:
+    @modal.enter()
+    def yukle(self):
+        import traceback
+
+        self.hata = None
+        try:
+            import torch
+            from diffusers import Flux2Pipeline
+
+            _flux_modelini_indir()
+            self.pipe = Flux2Pipeline.from_pretrained(FLUX_YOL, torch_dtype=torch.bfloat16).to("cuda")
+        except Exception:
+            self.hata = traceback.format_exc()
+            print(self.hata)
+
+    def _hata_varsa(self):
+        if self.hata:
+            raise RuntimeError("FLUX modeli yüklenemedi: " + self.hata.strip().splitlines()[-1])
+
+    @modal.method()
+    def isit(self) -> bool:
+        self._hata_varsa()
+        return True
+
+    @modal.method()
+    def uret(self, anahtar: str):
+        return _teslim_calistir(anahtar, self._uret)
+
+    def _uret(self, prompt: str, genislik: int | None, yukseklik: int | None, adet: int, tohum: int | None,
+              referanslar: list[bytes] | None = None):
+        self._hata_varsa()
+        import torch
+        from PIL import Image
+
+        if tohum is None:
+            tohum = random.randint(0, 2**31 - 1)
+        ek = {}
+        if referanslar:
+            resimler = []
+            for r in referanslar[:10]:
+                img = Image.open(io.BytesIO(r)).convert("RGB")
+                img.thumbnail((1536, 1536))
+                resimler.append(img)
+            ek["image"] = resimler
+            # Qwen'deki gibi boyut son referansın oranından türetilir.
+            genislik, yukseklik = referans_boyutu(*resimler[-1].size)
+        sonuc = []
+        for i in range(adet):
+            img = self.pipe(prompt=prompt, width=genislik, height=yukseklik, num_inference_steps=50,
+                            guidance_scale=4.0, generator=torch.Generator("cuda").manual_seed(tohum + i),
+                            **ek).images[0]
             buf = io.BytesIO()
             img.convert("RGB").save(buf, format="JPEG", quality=92)
             sonuc.append({"jpeg": buf.getvalue(), "tohum": tohum + i, "genislik": img.width, "yukseklik": img.height})
@@ -694,6 +802,25 @@ def _uzak(metot, *args):
 
 
 @app.local_entrypoint()
+def flux_dene():
+    """FLUX.2 [dev]'i uygulamadaki yoldan dener (yazıdan + referanslı): modal run foto.py::flux_dene"""
+    import time
+
+    Path("tani-cikti").mkdir(exist_ok=True)
+    bas = time.time()
+    g, y = FLUX_BOYUTLARI["dikey"]
+    ilk = _uzak(FluxUretici().uret, "a smiling woman with short black hair and a green coat at a flower market, "
+                "realistic photo", g, y, 1, 5)
+    print(f"yazıdan: {ilk[0]['genislik']}x{ilk[0]['yukseklik']}, {time.time() - bas:.0f} sn (yükleme dahil)")
+    Path("tani-cikti/flux_yazidan.jpg").write_bytes(ilk[0]["jpeg"])
+    bas = time.time()
+    ref = _uzak(FluxUretici().uret, "The same woman from the reference image, now hiking on a mountain trail, "
+                "wearing a red jacket", None, None, 1, 6, [ilk[0]["jpeg"]])
+    print(f"referanslı: {ref[0]['genislik']}x{ref[0]['yukseklik']}, {time.time() - bas:.0f} sn")
+    Path("tani-cikti/flux_referansli.jpg").write_bytes(ref[0]["jpeg"])
+
+
+@app.local_entrypoint()
 def foto_dene():
     """Qwen-Image-2.1'i uygulamadaki yoldan dener (yazıdan + referanslı): modal run foto.py::foto_dene"""
     import time
@@ -843,7 +970,7 @@ def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None
         prompt: str = Field(min_length=1, max_length=2000)
         mod: str = "serbest"
         boyut: str = "kare"
-        kalite: Literal["hizli", "standart", "yuksek", "eniyi", "hd"] = "eniyi"
+        kalite: Literal["hizli", "standart", "yuksek", "eniyi", "hd", "flux"] = "eniyi"
         adet: int = Field(default=1, ge=1, le=4)
         tohum: int | None = Field(default=None, ge=0, le=2**31 - 5)
         sure: Literal[5, 10] = 5
@@ -898,6 +1025,8 @@ def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None
     @api.post("/api/isit", dependencies=[Depends(oturum_kontrol)])
     def isit(i: Isit | None = None):
         i = i or Isit()
+        if i.tur == "foto" and i.kalite == "flux":
+            return {"is": baslat("isit_flux")}
         if i.tur == "foto" and qwen_mu(i.kalite, False):
             return {"is": baslat("isit_qwen")}
         if i.tur == "video" and i.video_model == "wan":
@@ -935,7 +1064,12 @@ def uygulama_olustur(sifre: str, baslat, sonuc_al, statik_dir: str, kota_al=None
                 referanslar = [base64.b64decode(r, validate=True) for r in istek.referanslar]
             except binascii.Error:
                 raise HTTPException(status_code=400, detail="Referans görsel okunamadı")
-            if qwen_mu(istek.kalite, bool(referanslar)):
+            if istek.kalite == "flux":
+                genislik, yukseklik = FLUX_BOYUTLARI.get(istek.boyut, FLUX_BOYUTLARI["kare"])
+                if referanslar:
+                    genislik = yukseklik = None  # referanstan türetilir
+                kimlik = baslat("flux", prompt, genislik, yukseklik, istek.adet, istek.tohum, referanslar)
+            elif qwen_mu(istek.kalite, bool(referanslar)):
                 kalite = istek.kalite if istek.kalite in QWEN_BOYUTLARI else "eniyi"
                 genislik, yukseklik = boyut_hesapla(istek.boyut, kalite)
                 if referanslar:
@@ -1003,6 +1137,8 @@ def _modal_baslat(is_turu: str, *args) -> str:
         "isit_foto": (Uretici, "isit"),
         "qwen": (QwenUretici, "uret"),
         "isit_qwen": (QwenUretici, "isit"),
+        "flux": (FluxUretici, "uret"),
+        "isit_flux": (FluxUretici, "isit"),
         "video": (VideoUretici, "uret"),
         "isit_video": (VideoUretici, "isit"),
         "wan": (WanUretici, "uret"),

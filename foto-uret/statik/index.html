@@ -8,7 +8,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/static/icon-192.png">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-<link rel="stylesheet" href="/static/style.css?v=13">
+<link rel="stylesheet" href="/static/style.css?v=14">
 <title>Foto Stüdyo</title>
 </head>
 <body>
@@ -113,18 +113,14 @@
       </div>
     </div>
 
-    <div class="iki-kolon sadece-foto">
-      <div>
-        <div class="etiket bosluk">Adet</div>
-        <div class="segment" id="adet" role="radiogroup" aria-label="Adet">
-          <button data-v="1" class="secili">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="4">4</button>
-        </div>
+    <div class="sadece-foto">
+      <div class="etiket bosluk">Kalite</div>
+      <div class="segment" id="kalite" role="radiogroup" aria-label="Kalite">
+        <button data-v="hizli">Hızlı</button><button data-v="eniyi" class="secili">En iyi</button><button data-v="hd">HD</button><button data-v="flux">FLUX</button>
       </div>
-      <div>
-        <div class="etiket bosluk">Kalite</div>
-        <div class="segment" id="kalite" role="radiogroup" aria-label="Kalite">
-          <button data-v="hizli">Hızlı</button><button data-v="eniyi" class="secili">En iyi</button><button data-v="hd">HD</button>
-        </div>
+      <div class="etiket bosluk">Adet</div>
+      <div class="segment" id="adet" role="radiogroup" aria-label="Adet">
+        <button data-v="1" class="secili">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="4">4</button>
       </div>
     </div>
 
@@ -236,6 +232,6 @@
 
 <div id="bildirim" class="bildirim" hidden></div>
 
-<script src="/static/app.js?v=13"></script>
+<script src="/static/app.js?v=14"></script>
 </body>
 </html>

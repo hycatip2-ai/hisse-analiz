@@ -2,7 +2,7 @@
 
 Telefona kurulabilen yapay zeka fotoğraf ve video üretme uygulaması (PWA). Modal (bulut GPU)
 üzerinde fotoğraf için **Qwen-Image-2.1** (en iyi kalite ve referans görseller; Qwen araştırma
-lisansı, kişisel kullanım) ve hızlı mod için **Z-Image-Turbo** (Apache 2.0), video için **LTX-2.5** (sesli video;
+lisansı, kişisel kullanım), **FLUX.2 [dev]** (ticari olmayan lisans) ve hızlı mod için **Z-Image-Turbo** (Apache 2.0), video için **LTX-2.5** (sesli video;
 yıllık geliri 10 milyon $ altı için ücretsiz LTX lisansı) çalışır. GPU süresi Modal'ın
 aylık ücretsiz kredisinden düşer.
 
@@ -71,10 +71,14 @@ Kodda değişiklik yapılıp `foto-uret/` klasörüne push edildiğinde deploy k
 
 - **Kalite:** *Hızlı* = Z-Image-Turbo (birkaç saniye); *En iyi* = Qwen-Image-2.1 (~1 MP, ~20 sn);
   *HD* = Qwen-Image-2.1 (~2 MP, ~40 sn). Fotoğraf başına maliyet ~1 sent.
+  *FLUX* = FLUX.2 [dev] (~1 MP, ~30 sn, referanslı ~1 dk; fotoğraf başına ~4-6 sent; ticari olmayan
+  lisans). Referansla düzenlemede (kişiyi başka sahneye koyma) Qwen istediğini yapmazsa FLUX'u dene.
+  İndirmek için https://huggingface.co/black-forest-labs/FLUX.2-dev sayfasında lisansı kabul etmiş
+  olmak gerekir (video için kullanılan HF_TOKEN yeterli).
 - **Referans görseller:** Fotoğraf modunda 10'a kadar görsel ekleyip ne yapılacağını yaz
   ("bu kadını sahilde göster", "arka planı değiştir", "bu iki kişiyi aynı karede göster").
   Kişi/ürün kimliği korunur. Galeride uzun basıp **Referans olarak kullan** ile de eklenir.
-  Referans varken Qwen kullanılır ve boyut son referansın oranından alınır.
+  Referans varken Qwen (FLUX seçiliyse FLUX) kullanılır; boyut son referansın oranından alınır.
 - Sadece kendi fotoğraflarını veya izni olan kişilerinkini kullan.
 
 ## Video
