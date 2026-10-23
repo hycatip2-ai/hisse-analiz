@@ -33,6 +33,18 @@ jobs:
       - name: Saatlik kullanım (son 1 gün)
         run: modal billing report --for today --resolution h --show-resources || true
       - uses: actions/checkout@v4
+      - name: Saatlik kullanım (son 3 gün, kaynak bazında)
+        run: |
+          python - <<'PY'
+          from datetime import datetime, timedelta, timezone
+          import modal
+          w = modal.Workspace.from_context()
+          bas = (datetime.now(timezone.utc) - timedelta(days=3)).replace(minute=0, second=0, microsecond=0)
+          for r in w.billing.report(start=bas, resolution="h"):
+              k = {a: round(float(v), 2) for a, v in r.cost_by_resource.items() if float(v) >= 0.05}
+              if k:
+                  print(r.interval_start.strftime("%m-%d %H:00"), round(float(r.cost), 2), k)
+          PY
       - name: Kota ekranının okuduğu veri
         working-directory: foto-uret
         env:
